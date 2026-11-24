@@ -605,6 +605,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// dynamic slot.
     #[test]
     fn lists_share_a_table_and_copies_keep_their_views() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         use crate::watch::PAGE;
         let (Some(host), Some(views)) = (crate::host::host(), heap()) else {
             return; // no host GPU here

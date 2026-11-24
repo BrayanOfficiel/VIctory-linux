@@ -514,6 +514,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// copy.
     #[test]
     fn heap_views_are_current() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let (src, dst) = (resource(1, 256, 1, 0, 1), resource(1, 256, 1, 0, 1));
         let tex = resource(3, 4, 1, 28, LINEAR);
         let write = |base: u32, texel: u8| {
@@ -537,6 +540,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// heaps through a pool view): every round must reach the shader.
     #[test]
     fn heap_views_follow_writes_through_another_mapping() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let (a, b) = crate::watch::tests::twin_views(2);
         let src = resource_at(a, 1, 256, 1, 0, 1);
         let tex = resource_at(a + PAGE_BYTES, 3, 4, 1, 28, LINEAR);

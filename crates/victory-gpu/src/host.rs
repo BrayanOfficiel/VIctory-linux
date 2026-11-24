@@ -2424,6 +2424,18 @@ pub(crate) fn compute_root(
     }
 }
 
+/// Whether the tests run under Wine (its ntdll exports `wine_get_version`).
+#[cfg(test)]
+pub(crate) fn on_wine() -> bool {
+    use windows::Win32::System::LibraryLoader::GetProcAddress;
+    // SAFETY: looks a name up in a module every process has loaded.
+    unsafe {
+        GetModuleHandleW(w!("ntdll.dll")).is_ok_and(|ntdll| {
+            GetProcAddress(ntdll, windows::core::s!("wine_get_version")).is_some()
+        })
+    }
+}
+
 pub(crate) fn transition(
     resource: &ID3D12Resource,
     before: D3D12_RESOURCE_STATES,
