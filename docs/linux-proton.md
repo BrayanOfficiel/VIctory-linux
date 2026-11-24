@@ -32,6 +32,11 @@ cargo xwin build --release -p victory --target x86_64-pc-windows-msvc
 The diagnostics build likewise:
 `cargo xwin build --profile diag -p victory --features diagnostics --target x86_64-pc-windows-msvc`.
 
+Only the MSVC target runs titles. The mingw target (`x86_64-pc-windows-gnu`)
+builds, but Rust keeps its per-thread state there outside the static TLS
+block the loader restores around a title's thread notices, so the first
+thread std starts with a title attached aborts the process.
+
 ## Running
 
 `scripts/proton-run.sh` runs `victory.exe` with Proton's Wine, in a prefix of
@@ -46,7 +51,8 @@ scripts/proton-run.sh run /path/to/game/<the title's exe> --execute
 `PROTON` selects another Proton folder, `PREFIX` another prefix and
 `VICTORY_EXE` another exe (the diagnostics build, say). Saves, settings and
 `crashes.log` live in the prefix's `%LOCALAPPDATA%\victory\data` unless
-`victory.toml` or `VICTORY_DATA_DIR` says otherwise.
+`victory.toml` or `VICTORY_DATA_DIR` says otherwise. Wine's crash dialog is
+off in that prefix: a crash prints its backtrace in the terminal instead.
 
 With an Xbox controller connected, the keyboard is not a pad (as on
 Windows), so `VICTORY_KEYS` presses do not reach the title either.
@@ -62,6 +68,13 @@ RDNA 3.5). What Proton brings has to be added:
 - **DXVK's `dxgi.dll`**, and `WINEDLLOVERRIDES="d3d12,d3d12core,dxgi=n"`.
 - No Microsoft `d3dcompiler_47`: Wine's built-in one compiles the argument
   clamp since it no longer needs `RWByteAddressBuffer` methods.
+
+`scripts/wine-run.sh` does this with the system's `wine`, in a prefix of its
+own (`~/.local/share/victory/wine`, made on first use without a window,
+`VICTORY_WINEPREFIX` for another) with Wine's crash dialog off. It takes
+vkd3d-proton and DXVK from the newest Proton build Steam has. If that one
+ships vkd3d-proton 3.1, `VICTORY_PROTON` names Proton Experimental's folder
+instead. It is a cargo runner too.
 
 ### Diagnostics switches
 
@@ -90,14 +103,23 @@ frames later).
 ## Tests
 
 ```sh
+cargo xwin build --manifest-path tests/fixtures/hle-probe/Cargo.toml \
+    --target x86_64-pc-windows-msvc --target-dir target/hle-probe
+export VICTORY_HLE_PROBE=$PWD/target/hle-probe/x86_64-pc-windows-msvc/debug/hle_probe.dll
 CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER=$PWD/scripts/proton-run.sh \
-    cargo xwin test --workspace --target x86_64-pc-windows-msvc
+    cargo xwin test --workspace --target x86_64-pc-windows-msvc --exclude xtask
+cargo test -p xtask
 ```
 
-Two tests start Linux programs from inside Wine and fail there for that
-reason only: `loads_binds_and_calls_probe` (builds its fixture with `cargo`)
-and `policy::tests::repository_passes_policy` (runs `git`). Run
-`cargo xtask policy` natively instead.
+Wine cannot start the Linux programs two tests start. So
+`loads_binds_and_calls_probe` takes its stand-in title built beforehand
+(`VICTORY_HLE_PROBE`) instead of building it with `cargo`, and xtask's
+tests, whose asset-policy check runs `git`, run natively.
+
+With two GPUs, `DXVK_FILTER_DEVICE_NAME` and `VKD3D_FILTER_DEVICE_NAME` pick
+one by name. Under Wine, a Ryzen's integrated GPU is named "AMD Radeon(TM)
+Graphics". One that drives no display is a safe place for tests that could
+hang a GPU.
 
 ## Known differences
 

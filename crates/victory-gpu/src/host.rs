@@ -2376,6 +2376,54 @@ fn in_flight(history: &[D3D12_AUTO_BREADCRUMB_OP], markers: &[(u32, String)], do
     text
 }
 
+/// The root signature of a compute shader of ours: `constants` root
+/// constants at b0, then `uavs` root UAVs from u0. Made here rather than
+/// read from the shader: Wine's HLSL compiler embeds none.
+pub(crate) fn compute_root(
+    device: &ID3D12Device,
+    constants: u32,
+    uavs: u32,
+) -> windows::core::Result<ID3D12RootSignature> {
+    let mut params = vec![D3D12_ROOT_PARAMETER {
+        ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+        Anonymous: D3D12_ROOT_PARAMETER_0 {
+            Constants: D3D12_ROOT_CONSTANTS {
+                ShaderRegister: 0,
+                RegisterSpace: 0,
+                Num32BitValues: constants,
+            },
+        },
+        ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
+    }];
+    params.extend((0..uavs).map(|register| D3D12_ROOT_PARAMETER {
+        ParameterType: D3D12_ROOT_PARAMETER_TYPE_UAV,
+        Anonymous: D3D12_ROOT_PARAMETER_0 {
+            Descriptor: D3D12_ROOT_DESCRIPTOR {
+                ShaderRegister: register,
+                RegisterSpace: 0,
+            },
+        },
+        ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
+    }));
+    let desc = D3D12_ROOT_SIGNATURE_DESC {
+        NumParameters: params.len() as u32,
+        pParameters: params.as_ptr(),
+        NumStaticSamplers: 0,
+        pStaticSamplers: std::ptr::null(),
+        Flags: D3D12_ROOT_SIGNATURE_FLAG_NONE,
+    };
+    // SAFETY: the description points at a live array; the blob is read in
+    // full before it is released.
+    unsafe {
+        let mut blob: Option<windows::Win32::Graphics::Direct3D::ID3DBlob> = None;
+        D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &mut blob, None)?;
+        let blob = blob.ok_or_else(windows::core::Error::empty)?;
+        let bytes =
+            std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize());
+        device.CreateRootSignature(0, bytes)
+    }
+}
+
 pub(crate) fn transition(
     resource: &ID3D12Resource,
     before: D3D12_RESOURCE_STATES,

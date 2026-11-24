@@ -28,7 +28,7 @@ use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::core::s;
 
-use crate::host::{HostList, host, transition};
+use crate::host::{HostList, compute_root, host, transition};
 use crate::object::This;
 use crate::resource::HostTexture;
 
@@ -458,9 +458,10 @@ fn uav_barrier() -> D3D12_RESOURCE_BARRIER {
 /// / 65535` rounded, exactly, and back to the 16-bit value whose 24-bit one
 /// is nearest.
 const SOURCE: &str = r#"
-#define RS "RootConstants(num32BitConstants=8, b0), UAV(u0)"
 cbuffer C : register(b0) { uint width; uint height; uint pitch16; uint at16; uint pitch32; uint at32; uint toDepth; uint unused; };
-RWByteAddressBuffer buf : register(u0);
+// Words: the offsets are multiples of 4, and Wine's compiler has no
+// byte-address buffer methods.
+RWStructuredBuffer<uint> buf : register(u0);
 uint d24(uint u) { return u * 256 + (u * 255 + 32767) / 65535; }
 uint u16(uint d) {
     d &= 0xffffff;
@@ -471,23 +472,22 @@ uint u16(uint d) {
     if (u < 65535 && abs((int)d24(u + 1) - (int)d) < err) { best = u + 1; }
     return best;
 }
-[RootSignature(RS)]
 [numthreads(64, 1, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     uint x = id.x * 2;
     uint y = id.y;
     if (x >= width || y >= height) return;
-    uint a = at16 + y * pitch16 + x * 2;
-    uint b = at32 + y * pitch32 + x * 4;
+    uint a = (at16 + y * pitch16 + x * 2) / 4;
+    uint b = (at32 + y * pitch32 + x * 4) / 4;
     bool two = x + 1 < width;
     if (toDepth != 0) {
-        uint pair = buf.Load(a);
-        buf.Store(b, d24(pair & 0xffff));
-        if (two) buf.Store(b + 4, d24(pair >> 16));
+        uint pair = buf[a];
+        buf[b] = d24(pair & 0xffff);
+        if (two) buf[b + 1] = d24(pair >> 16);
     } else {
-        uint lo = u16(buf.Load(b));
-        uint hi = two ? u16(buf.Load(b + 4)) : 0;
-        buf.Store(a, lo | hi << 16);
+        uint lo = u16(buf[b]);
+        uint hi = two ? u16(buf[b + 1]) : 0;
+        buf[a] = lo | hi << 16;
     }
 }
 "#;
@@ -531,10 +531,11 @@ fn compile() -> windows::core::Result<Converter> {
         return Err(e);
     }
     let code = code.ok_or_else(windows::core::Error::empty)?;
-    // SAFETY: the blob's own bytes; the root signature is inside the shader.
+    // The eight constants, then the scratch buffer as root UAV u0.
+    let root = compute_root(device, 8, 1)?;
+    // SAFETY: the blob's own bytes.
     unsafe {
         let bytes = std::slice::from_raw_parts(code.GetBufferPointer().cast::<u8>(), code.GetBufferSize());
-        let root: ID3D12RootSignature = device.CreateRootSignature(0, bytes)?;
         let pso = device.CreateComputePipelineState(&D3D12_COMPUTE_PIPELINE_STATE_DESC {
             pRootSignature: std::mem::transmute_copy(&root),
             CS: D3D12_SHADER_BYTECODE { pShaderBytecode: bytes.as_ptr().cast(), BytecodeLength: bytes.len() },
@@ -572,5 +573,71 @@ mod tests {
         assert_eq!(again(DEPTH, &mut last, DEPTH, false), None);
         assert_eq!(again(DEPTH, &mut last, TWIN, true), Some(false));
         assert_eq!(last, Some(TWIN));
+    }
+
+    /// The converter on the GPU: 16-bit depth widened to 24 bits (the UNORM
+    /// rescale) and narrowed back to the same values, two pixels a thread,
+    /// an odd row's last pixel alone; a 24-bit value between two goes to the
+    /// nearest.
+    #[test]
+    fn the_converter_widens_and_narrows_depth_on_the_gpu() {
+        let Some(host) = host() else {
+            return; // no host GPU here
+        };
+        let c = converter().expect("the depth converter builds");
+        let d24 = |u: u32| ((u64::from(u) * 16_777_215 + 32_767) / 65_535) as u32;
+        // Rows of three pixels, 256 bytes apart: the 16-bit plane at 0, the
+        // 32-bit one at 512, as placed footprints align them.
+        let (width, height, pitch16, at16, pitch32, at32) = (3, 2, 256, 0, 256, 512);
+        let (buffer, data) = host.shared_buffer(1024).unwrap();
+        let (half, word) = (data.cast::<u16>(), data.cast::<u32>());
+        let half_at = |x: usize, y: usize| (at16 + y as u32 * pitch16) as usize / 2 + x;
+        let word_at = |x: usize, y: usize| (at32 + y as u32 * pitch32) as usize / 4 + x;
+        let run = |to_depth: u32| {
+            let list = host.new_list().unwrap();
+            let constants = [width, height, pitch16, at16, pitch32, at32, to_depth, 0];
+            let (common, uav) = (D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            // SAFETY: an open list, the converter's root signature and
+            // pipeline, and a live buffer.
+            unsafe {
+                let l = &list.list;
+                l.ResourceBarrier(&[transition(&buffer, common, uav)]);
+                l.SetComputeRootSignature(&c.root);
+                l.SetPipelineState(&c.pso);
+                l.SetComputeRootUnorderedAccessView(1, buffer.GetGPUVirtualAddress());
+                l.SetComputeRoot32BitConstants(0, 8, constants.as_ptr().cast(), 0);
+                l.Dispatch(width.div_ceil(2).div_ceil(64), height, 1);
+                l.ResourceBarrier(&[transition(&buffer, uav, common)]);
+            }
+            list.close();
+            host.execute(&[&list]);
+        };
+        let depths = [[0u16, 1, 65_535], [32_768, 12_345, 2]];
+        for (y, row) in depths.iter().enumerate() {
+            for (x, &v) in row.iter().enumerate() {
+                // SAFETY: inside the mapped buffer.
+                unsafe { half.add(half_at(x, y)).write(v) };
+            }
+        }
+        run(1);
+        for (y, row) in depths.iter().enumerate() {
+            for (x, &v) in row.iter().enumerate() {
+                // SAFETY: inside the mapped buffer, which the GPU is done with.
+                let wide = unsafe { word.add(word_at(x, y)).read_volatile() };
+                assert_eq!(wide, d24(u32::from(v)), "widened ({x}, {y})");
+                // SAFETY: as above; the 16-bit side is cleared to see it back.
+                unsafe { half.add(half_at(x, y)).write(0xDEAD) };
+            }
+        }
+        // SAFETY: as above.
+        unsafe { word.add(word_at(0, 1)).write(d24(32_768) + 3) };
+        run(0);
+        for (y, row) in depths.iter().enumerate() {
+            for (x, &v) in row.iter().enumerate() {
+                // SAFETY: as above.
+                let back = unsafe { half.add(half_at(x, y)).read_volatile() };
+                assert_eq!(back, v, "narrowed ({x}, {y})");
+            }
+        }
     }
 }

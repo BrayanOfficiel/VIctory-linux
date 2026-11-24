@@ -4,8 +4,8 @@
 //! billion vertices or a dispatch past the host's limits runs until the
 //! host resets the display driver. So every record is clamped on the GPU,
 //! just before its execution, by a compute shader of ours (HLSL compiled by
-//! the system's compiler as a 5.1 shader; its root signature is built here,
-//! since Wine's compiler does not embed one).
+//! the system's compiler as a 5.1 shader; its root signature is made
+//! apart, since Wine's compiler does not embed one).
 //!
 //! Each list also has a budget (2^27 vertex instances or threads, groups
 //! counted as 64 threads, mesh groups as 128): records past it run empty,
@@ -22,7 +22,7 @@ use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D12::*;
 use windows::core::s;
 
-use crate::host::{HostList, host, transition};
+use crate::host::{HostList, compute_root, host, transition};
 
 // Written for both compilers `D3DCompile` may be: Microsoft's and, under
 // Wine, vkd3d-shader's, which has no `RWByteAddressBuffer` methods. So the
@@ -129,7 +129,9 @@ fn make() -> windows::core::Result<Clamp> {
         return Err(e);
     }
     let code = code.ok_or_else(windows::core::Error::empty)?;
-    let root = root_signature(device)?;
+    // Constants (kind, stride, records, unused), then the arguments as
+    // root UAV u0 and the budget as root UAV u1.
+    let root = compute_root(device, 4, 2)?;
     // SAFETY: the blob's own bytes.
     unsafe {
         let bytes = std::slice::from_raw_parts(code.GetBufferPointer().cast::<u8>(), code.GetBufferSize());
@@ -142,45 +144,6 @@ fn make() -> windows::core::Result<Clamp> {
             ..Default::default()
         })?;
         Ok(Clamp { root, pso })
-    }
-}
-
-/// Constants b0 (four words: kind, stride, records, unused), then the
-/// arguments as root UAV u0 and the budget as root UAV u1.
-fn root_signature(device: &ID3D12Device) -> windows::core::Result<ID3D12RootSignature> {
-    let uav = |register| D3D12_ROOT_PARAMETER {
-        ParameterType: D3D12_ROOT_PARAMETER_TYPE_UAV,
-        Anonymous: D3D12_ROOT_PARAMETER_0 {
-            Descriptor: D3D12_ROOT_DESCRIPTOR { ShaderRegister: register, RegisterSpace: 0 },
-        },
-        ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-    };
-    let params = [
-        D3D12_ROOT_PARAMETER {
-            ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
-            Anonymous: D3D12_ROOT_PARAMETER_0 {
-                Constants: D3D12_ROOT_CONSTANTS { ShaderRegister: 0, RegisterSpace: 0, Num32BitValues: 4 },
-            },
-            ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-        },
-        uav(0),
-        uav(1),
-    ];
-    let desc = D3D12_ROOT_SIGNATURE_DESC {
-        NumParameters: params.len() as u32,
-        pParameters: params.as_ptr(),
-        NumStaticSamplers: 0,
-        pStaticSamplers: std::ptr::null(),
-        Flags: D3D12_ROOT_SIGNATURE_FLAG_NONE,
-    };
-    // SAFETY: the description points at a live array; the blob is read in
-    // full before it is released.
-    unsafe {
-        let mut blob: Option<ID3DBlob> = None;
-        D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &mut blob, None)?;
-        let blob = blob.ok_or_else(windows::core::Error::empty)?;
-        let bytes = std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize());
-        device.CreateRootSignature(0, bytes)
     }
 }
 
