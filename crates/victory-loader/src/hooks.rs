@@ -86,3 +86,100 @@ unsafe fn apply(base: usize, p: &Patch) -> bool {
     tracing::info!(what = p.what, "hook applied");
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::System::Memory::{
+        MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
+    };
+
+    /// A stand-in image reaching past the last patch, with each patch's
+    /// expected bytes at its offset.
+    struct Image(usize);
+
+    impl Image {
+        fn new() -> Image {
+            let len = WATCHDOG
+                .iter()
+                .map(|p| p.rva + p.expect.len())
+                .max()
+                .unwrap();
+            // SAFETY: a fresh allocation; untouched pages cost nothing.
+            let base = unsafe {
+                VirtualAlloc(
+                    std::ptr::null(),
+                    len,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
+            assert!(!base.is_null());
+            for p in WATCHDOG {
+                // SAFETY: inside the allocation.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        p.expect.as_ptr(),
+                        base.cast::<u8>().add(p.rva),
+                        p.expect.len(),
+                    )
+                };
+            }
+            Image(base as usize)
+        }
+
+        fn at(&self, p: &Patch) -> &[u8] {
+            // SAFETY: inside the allocation.
+            unsafe { std::slice::from_raw_parts((self.0 + p.rva) as *const u8, p.expect.len()) }
+        }
+    }
+
+    impl Drop for Image {
+        fn drop(&mut self) {
+            // SAFETY: our allocation, no longer read.
+            unsafe { VirtualFree(self.0 as *mut _, 0, MEM_RELEASE) };
+        }
+    }
+
+    /// A hash whose hex starts with `hex`.
+    fn hash(hex: &str) -> blake3::Hash {
+        let mut bytes = [0u8; 32];
+        for (i, b) in bytes.iter_mut().take(hex.len() / 2).enumerate() {
+            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
+        }
+        blake3::Hash::from(bytes)
+    }
+
+    /// On build 1.0.2.1 both patches go in, each over exactly its bytes.
+    #[test]
+    fn the_watchdog_patches_go_in_on_build_1_0_2_1() {
+        let image = Image::new();
+        // SAFETY: a stand-in image no code runs in.
+        assert_eq!(unsafe { disarm_watchdog(image.0, &hash(BUILD_1_0_2_1)) }, 2);
+        for p in WATCHDOG {
+            assert_eq!(image.at(p), p.new, "{}", p.what);
+        }
+    }
+
+    /// Another build is left as it is, and so is a site whose bytes are not
+    /// the expected ones.
+    #[test]
+    fn other_builds_and_other_bytes_are_left_alone() {
+        let image = Image::new();
+        // SAFETY: as above.
+        assert_eq!(
+            unsafe { disarm_watchdog(image.0, &hash("0123456789abcdef")) },
+            0
+        );
+        for p in WATCHDOG {
+            assert_eq!(image.at(p), p.expect, "{}", p.what);
+        }
+        let (moved, kept) = (&WATCHDOG[0], &WATCHDOG[1]);
+        // SAFETY: inside the stand-in image.
+        unsafe { ((image.0 + moved.rva) as *mut u8).write(0xCC) };
+        // SAFETY: as above.
+        assert_eq!(unsafe { disarm_watchdog(image.0, &hash(BUILD_1_0_2_1)) }, 1);
+        assert_eq!(image.at(moved)[0], 0xCC, "{}", moved.what);
+        assert_eq!(image.at(kept), kept.new, "{}", kept.what);
+    }
+}
