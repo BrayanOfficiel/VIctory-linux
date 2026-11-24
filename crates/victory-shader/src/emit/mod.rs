@@ -181,6 +181,8 @@ mod rect;
 pub use rect::rectangle_gs;
 #[cfg(all(test, windows))]
 mod memory_tests;
+#[cfg(all(test, windows))]
+mod permlane_tests;
 mod sampler;
 #[cfg(all(test, windows))]
 mod semantics_tests;
