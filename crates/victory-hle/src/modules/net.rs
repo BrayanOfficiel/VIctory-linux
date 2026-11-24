@@ -325,6 +325,7 @@ pub extern "system" fn WSAConnectByList(
     // Wine's ws2_32 has no WSAConnectByList: fail the call as unsupported.
     let Some(address) = *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "WSAConnectByList"))
     else {
+        once("the host lacks ws2_32!WSAConnectByList", String::new());
         const WSAEOPNOTSUPP: i32 = 10045;
         host!("ws2_32.dll", "WSASetLastError": extern "system" fn(i32))(WSAEOPNOTSUPP);
         return 0;
@@ -594,6 +595,7 @@ pub extern "system" fn GetAddrInfoExA(
     // Wine's ws2_32 has no GetAddrInfoExA: the name is not found.
     let Some(address) = *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "GetAddrInfoExA"))
     else {
+        once("the host lacks ws2_32!GetAddrInfoExA", narrow(name).unwrap_or_default());
         return WSAHOST_NOT_FOUND;
     };
     // SAFETY: the host exports this function with this signature.
