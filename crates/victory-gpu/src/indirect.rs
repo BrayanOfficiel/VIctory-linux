@@ -331,4 +331,61 @@ mod tests {
         assert_eq!(read(16), [65_535, 2, 3]);
         assert_eq!(read(32), [65_535, 1, 1]);
     }
+
+    /// `records` of `kind`, `stride` bytes apart, after the clamp ran over
+    /// them in one list; `None` without a host GPU.
+    fn clamped(kind: u32, stride: u32, records: &[&[u32]]) -> Option<Vec<Vec<u32>>> {
+        use super::*;
+        let host = host()?;
+        let words = stride as usize / 4;
+        let (buffer, data) = host.shared_buffer((records.len() * stride as usize) as u64)?;
+        let data = data.cast::<u32>();
+        for (i, record) in records.iter().enumerate() {
+            // SAFETY: inside the mapped buffer.
+            unsafe {
+                std::ptr::copy_nonoverlapping(record.as_ptr(), data.add(i * words), record.len())
+            };
+        }
+        let list = host.new_list().unwrap();
+        // SAFETY: a live buffer and an open list.
+        let gpu = unsafe {
+            list.list.ResourceBarrier(&[transition(
+                &buffer,
+                D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            )]);
+            buffer.GetGPUVirtualAddress()
+        };
+        let shape = (kind, stride, records.len() as u32);
+        assert!(bound(&list, &buffer, gpu, shape));
+        done(&list, &buffer);
+        list.close();
+        host.execute(&[&list]);
+        let record = |i: usize| {
+            // SAFETY: the list ran (execute waits); inside the mapped buffer.
+            unsafe { std::slice::from_raw_parts(data.add(i * words), words).to_vec() }
+        };
+        Some((0..records.len()).map(record).collect())
+    }
+
+    /// Records of one list: a dispatch past 2^20 groups runs empty, a draw's
+    /// instances keep it within 2^26 vertex instances, and past the list's
+    /// budget of 2^27 the record the GPU counts last runs empty.
+    #[test]
+    fn oversized_dispatches_and_the_budget_run_empty() {
+        let dispatches = [&[4, 2, 1][..], &[65_535, 65_535, 2], &[1024, 1024, 1]];
+        let Some(dispatches) = clamped(2, 12, &dispatches) else {
+            return; // no host GPU here
+        };
+        assert_eq!(
+            dispatches,
+            [vec![4, 2, 1], vec![0, 0, 0], vec![1024, 1024, 1]]
+        );
+        let draws = clamped(0, 16, &[&[100, 1_000_000, 0, 0]]).unwrap();
+        assert_eq!(draws, [vec![100, 671_088, 0, 0]]);
+        let full: &[u32] = &[1 << 24, 4, 0, 0];
+        let over = clamped(0, 16, &[full; 3]).unwrap();
+        assert_eq!(over.iter().filter(|r| r[0] == 0).count(), 1, "{over:?}");
+        assert!(over.iter().all(|r| r[0] == 0 || r[..] == *full), "{over:?}");
+    }
 }
