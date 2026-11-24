@@ -55,6 +55,13 @@ off in that prefix: a crash prints its backtrace in the terminal instead.
 With an Xbox controller connected, the keyboard is not a pad (as on
 Windows), so `VICTORY_KEYS` presses do not reach the title either.
 
+The title's own watchdog ends the process when its main thread has not
+advanced for about 30 seconds, which a world load under Wine can exceed.
+`VICTORY_NO_WATCHDOG=1` turns it off on build 1.0.2.1: the loader patches
+its two sites, each only if its bytes are the expected ones, and leaves
+other builds alone. It hides a stall without fixing it, so a real deadlock
+then waits instead of ending the process.
+
 ### Without Proton (system Wine)
 
 A system Wine works too (reported with Wine 11.22 on RDNA2, RDNA3 and
