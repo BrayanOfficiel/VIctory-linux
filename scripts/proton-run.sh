@@ -47,6 +47,12 @@ export WINEFSYNC=1
 export VKD3D_SHADER_CACHE_PATH="${VKD3D_SHADER_CACHE_PATH:-$PREFIX/vkd3d-cache}"
 mkdir -p "$VKD3D_SHADER_CACHE_PATH"
 
+# Crashes print a backtrace in the terminal instead of opening Wine's dialog.
+if [[ ! -f "$PREFIX/.no-crash-dialog" ]]; then
+    env -u DISPLAY -u WAYLAND_DISPLAY "$PROTON/files/bin/wine" reg add 'HKCU\Software\Wine\WineDbg' \
+        /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null 2>&1 && touch "$PREFIX/.no-crash-dialog"
+fi
+
 WINE="$PROTON/files/bin/wine"
 if [[ -n "${VICTORY_EXE:-}" ]]; then
     exec "$WINE" "$VICTORY_EXE" "$@"
