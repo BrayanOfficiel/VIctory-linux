@@ -1,13 +1,11 @@
 # Linux (Proton)
 
 VIctory is a Windows program, and it also runs on Linux under Proton's Wine
-with vkd3d-proton for Direct3D 12. Under Proton it gets as far as on Windows:
-boot, first-boot screens, intro video, start screen, saves, loading, and the
-opening of the first mission (credits over the scene; the scene itself is
-still dark, as on Windows).
+with vkd3d-proton for Direct3D 12 and DXVK's DXGI.
 
-Tested on one machine (2026-11-24): CachyOS, Linux 7.3, AMD RX 9070 XT
-(RADV, Mesa 26.3.1), Proton Experimental `experimental-11.0-20261112`.
+Its test suite passes there (2026-11-25): CachyOS, Linux 7.3, AMD RX 6950 XT
+(RADV, Mesa 26.2.6), Proton Experimental `experimental-11.0-20261112`. The
+title itself was not run on this build.
 
 ## Requirements
 
@@ -66,8 +64,9 @@ RDNA 3.5). What Proton brings has to be added:
   Experimental's `files/lib/wine/vkd3d-proton/x86_64-windows`). 3.1 turns
   some translated shaders into SPIR-V RADV cannot take.
 - **DXVK's `dxgi.dll`**, and `WINEDLLOVERRIDES="d3d12,d3d12core,dxgi=n"`.
-- No Microsoft `d3dcompiler_47`: Wine's built-in one compiles the argument
-  clamp since it no longer needs `RWByteAddressBuffer` methods.
+- No Microsoft `d3dcompiler_47`: Wine's built-in one compiles the two
+  shaders VIctory makes at run time (the argument clamp and the depth
+  converter).
 
 `scripts/wine-run.sh` does this with the system's `wine`, in a prefix of its
 own (`~/.local/share/victory/wine`, made on first use without a window,
@@ -75,30 +74,6 @@ own (`~/.local/share/victory/wine`, made on first use without a window,
 vkd3d-proton and DXVK from the newest Proton build Steam has. If that one
 ships vkd3d-proton 3.1, `VICTORY_PROTON` names Proton Experimental's folder
 instead. It is a cargo runner too.
-
-### Diagnostics switches
-
-In the diagnostics build:
-
-- `VICTORY_NO_WATCHDOG=1` (from #454, if merged) keeps the title's stall
-  watchdog from ending slow runs.
-- `VICTORY_SHOW_TARGET=<w>x<h>-f<format>[-<n>]` presents an intermediate
-  render target instead of the final frame, the `n`th of that size and
-  format the frame writes (names as in `VICTORY_DUMP_TARGETS` files). The
-  world's G-buffer shows its geometry while the final image is dark:
-  `VICTORY_SHOW_TARGET=2560x1440-f28-3` on a Series X profile.
-- `VICTORY_DEBUG_PS=1` draws depth-tested geometry with a debug pixel
-  shader (surfaces coloured by their slope, from depth derivatives) instead
-  of the title's: the geometry of every draw whose vertex or mesh stage
-  translates, whether its pixel shader does or not. With the two switches
-  together you can walk the world in a flat-colour view.
-
-In every build, a draw of depth-tested geometry whose pixel shader does
-not translate (or that the host refuses) is drawn with that debug shader
-instead of dropped; `VICTORY_PS_FALLBACK=0` turns that off.
-`VICTORY_PIPELINE_WAIT_MS` sets how long a frame may wait for pipelines
-being made (500 by default; 0 never waits, pipelines then appear a few
-frames later).
 
 ## Tests
 
@@ -124,17 +99,17 @@ hang a GPU.
 ## Known differences
 
 - **Speed.** Wine emulates write watching page by page, so the copies of
-  title memory take longer than on Windows. Under Wine the kernel is asked
-  about each title allocation once per submission (`watch::new_submission`),
-  views of physical pages go straight to their guards, and allocations are
-  looked up from a cache rather than with `VirtualQuery`, which takes the
-  same lock as the title's write faults.
+  title memory take longer than on Windows.
 - **Software rendering does not work.** On lavapipe, Wine cannot handle the
   write faults of VIctory's guarded title memory when lavapipe's own
   threads take them.
-- **vkd3d-proton differs from Windows drivers in a few places VIctory now
-  handles:** its HLSL compiler (Wine's `D3DCompile`) lacks
-  `RWByteAddressBuffer` methods and does not embed root signatures; it
-  refuses an empty pipeline library given a non-null blob pointer; it does
-  not check DXIL container hashes; and its descriptor layout makes a texture
-  descriptor read as a constant buffer (a stale slot) a read at address 0.
+- **Wine and vkd3d-proton differ from Windows in a few places VIctory now
+  handles:**
+  - Wine's HLSL compiler (`D3DCompile`, built on vkd3d-shader) has no
+    `RWByteAddressBuffer` methods and does not embed root signatures. So
+    VIctory's two shaders read structured buffers of words, and their root
+    signatures are made apart.
+  - vkd3d-proton refuses an empty pipeline library given a non-null blob
+    pointer, and does not check DXIL container hashes.
+  - Its DXIL to SPIR-V translation cannot structure a loop left by both a
+    break and a return, so each translated program returns from one block.
