@@ -266,24 +266,43 @@ impl Drop for Tracked {
                 }
             }
         }
-        for page in free {
-            open(&mut g, page);
-        }
+        open(&mut g, &free);
     }
 }
 
-/// Gives write access back to page `page` if we guarded it.
-fn open(g: &mut Guards, page: usize) -> bool {
+/// Gives write access back to those of `pages` (in order) we guarded, a
+/// run of consecutive pages at a time: under Wine each call waits for its
+/// memory lock, which the title's threads take too. A run that spans two
+/// allocations cannot change at once and is opened page by page.
+fn open(g: &mut Guards, pages: &[usize]) {
     use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
-    if !g.protected.remove(&page) {
-        return false;
-    }
-    let mut old = 0;
-    // SAFETY: a block we made read-only (failing harmlessly if it is gone).
-    unsafe { VirtualProtect((page * PAGE) as *const _, PAGE, PAGE_READWRITE, &mut old) };
+    let set = |from: usize, to: usize| {
+        let mut old = 0;
+        let (at, len) = ((from * PAGE) as *const _, (to - from) * PAGE);
+        // SAFETY: blocks we made read-only (failing harmlessly if gone).
+        unsafe { VirtualProtect(at, len, PAGE_READWRITE, &mut old) != 0 }
+    };
+    let guarded: Vec<usize> = pages
+        .iter()
+        .copied()
+        .filter(|p| g.protected.remove(p))
+        .collect();
     #[cfg(feature = "diagnostics")]
-    crate::copystat::add(crate::copystat::C::OpenPages, 1);
-    true
+    crate::copystat::add(crate::copystat::C::OpenPages, guarded.len() as u64);
+    let mut i = 0;
+    while i < guarded.len() {
+        let first = i;
+        while i + 1 < guarded.len() && guarded[i + 1] == guarded[i] + 1 {
+            i += 1;
+        }
+        let run = &guarded[first..=i];
+        i += 1;
+        if !set(run[0], run[run.len() - 1] + 1) {
+            for &page in run {
+                set(page, page + 1);
+            }
+        }
+    }
 }
 
 impl Tracked {
@@ -479,9 +498,7 @@ fn changed(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
 /// lands: trackers armed for a page they had taken keep its bytes.
 fn changed_here(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
     let guarded: Vec<usize> = g.protected.range(first..last).copied().collect();
-    for &page in &guarded {
-        open(g, page);
-    }
+    open(g, &guarded);
     for (&page, holders) in g.holders.range(first..last) {
         for c in holders {
             let first_write = c.0.lock().unwrap_or_else(|e| e.into_inner()).insert(page);
@@ -803,6 +820,22 @@ pub(crate) mod tests {
         drop(t);
         // SAFETY: our view.
         unsafe { UnmapViewOfFile(windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS { Value: view as *mut _ }) };
+    }
+
+    /// A write the guards do not see opens exactly its blocks: those around
+    /// it stay guarded, and after it only its blocks are to be copied.
+    #[test]
+    fn writes_open_exactly_their_blocks() {
+        let p = pool(8);
+        let t = track(p, 8 * PAGE, true).expect("tracked");
+        assert_eq!(t.take(p, p + 8 * PAGE), [(p, p + 8 * PAGE)]);
+        let w = writing(p + 2 * PAGE + 10, 3 * PAGE - 20);
+        let open: Vec<bool> = (0..8).map(|k| writable(p + k * PAGE)).collect();
+        assert_eq!(open, [false, false, true, true, true, false, false, false]);
+        drop(w);
+        assert_eq!(t.take(p, p + 8 * PAGE), [(p + 2 * PAGE, p + 5 * PAGE)]);
+        drop(t);
+        free(p);
     }
 
     /// `pages` pages of a fresh pagefile section mapped twice (as the
