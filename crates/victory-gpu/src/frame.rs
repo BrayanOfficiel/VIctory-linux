@@ -10,8 +10,8 @@
 //! the clock to presentation if a title paces by them.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::object::{HRESULT, S_FALSE, S_OK, This};
@@ -24,6 +24,33 @@ const ORIGIN: u32 = 0;
 /// frame early).
 const TOKEN_ON_TIMEOUT: u32 = 2;
 const SIXTIETH: Duration = Duration::from_micros(16_667);
+/// The interval of a clock that paces nothing: every wait ends at once.
+const UNPACED: Duration = Duration::from_nanos(1);
+
+/// `VICTORY_FRAME_RATE`: frames a second the clock ticks at, whatever
+/// interval the title sets, 0 for no pacing at all. Anything else is not a
+/// rate (`None`).
+fn forced_interval(rate: &str) -> Option<Duration> {
+    match rate.trim().parse::<f64>() {
+        Ok(0.0) => Some(UNPACED),
+        Ok(rate) if rate.is_finite() && rate > 0.0 => Some(Duration::from_secs_f64(1.0 / rate)),
+        _ => None,
+    }
+}
+
+/// The interval `VICTORY_FRAME_RATE` forces, read once.
+fn forced() -> Option<Duration> {
+    static FORCED: OnceLock<Option<Duration>> = OnceLock::new();
+    *FORCED.get_or_init(|| {
+        let rate = std::env::var("VICTORY_FRAME_RATE").ok()?;
+        let forced = forced_interval(&rate);
+        match forced {
+            Some(interval) => tracing::info!(?interval, "VICTORY_FRAME_RATE={rate}: frame interval forced"),
+            None => tracing::warn!("VICTORY_FRAME_RATE={rate} is not a rate: the title's interval stays"),
+        }
+        forced
+    })
+}
 
 struct Clock {
     start: Instant,
@@ -49,10 +76,10 @@ pub(crate) extern "system" fn set_interval(
     _period: u32,
     _flags: u32,
 ) -> HRESULT {
-    let interval = match length {
+    let interval = forced().unwrap_or(match length {
         0 => SIXTIETH,
         us => Duration::from_micros(u64::from(us)),
-    };
+    });
     tracing::info!(?interval, "frame interval");
     // A new interval starts from now, after the last tick handed out.
     let first = LAST
@@ -107,7 +134,7 @@ fn next_tick(kind: u32, limit: Duration) -> (u64, Duration) {
     let mut clock = clock();
     let c = clock.get_or_insert_with(|| Clock {
         start: Instant::now(),
-        interval: SIXTIETH,
+        interval: forced().unwrap_or(SIXTIETH),
         first: 0,
     });
     let elapsed = c.start.elapsed().as_nanos();
@@ -287,5 +314,15 @@ mod tests {
         assert!(second > first, "{second} after {first}");
         next_tick(VBLANK, Duration::ZERO);
         assert_eq!(last(VBLANK).load(Ordering::Relaxed), second);
+    }
+
+    #[test]
+    fn a_frame_rate_sets_the_interval_and_zero_paces_nothing() {
+        assert_eq!(forced_interval("60"), Some(Duration::from_nanos(16_666_667)));
+        assert_eq!(forced_interval(" 144 "), Some(Duration::from_nanos(6_944_444)));
+        assert_eq!(forced_interval("0"), Some(UNPACED));
+        for not_a_rate in ["", "fast", "-30", "inf", "NaN"] {
+            assert_eq!(forced_interval(not_a_rate), None, "{not_a_rate:?}");
+        }
     }
 }

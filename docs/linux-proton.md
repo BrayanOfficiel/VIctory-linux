@@ -81,6 +81,11 @@ its two sites, each only if its bytes are the expected ones, and leaves
 other builds alone. It hides a stall without fixing it, so a real deadlock
 then waits instead of ending the process.
 
+The title paces its frames at 30 a second (it sets a 33.333 ms interval).
+`VICTORY_FRAME_RATE` overrides that rate: `VICTORY_FRAME_RATE=60` paces
+frames at 60 a second, and `VICTORY_FRAME_RATE=0` does not pace them, so
+the menus run as fast as they render. Unset, the title's rate stays.
+
 ### Without Proton (system Wine)
 
 A system Wine works too (reported with Wine 11.22 on RDNA2, RDNA3 and

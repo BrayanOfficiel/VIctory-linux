@@ -57,6 +57,8 @@ Experimental `experimental-11.0-20261112`.
   the title's watchdog, on by default in `run.sh`), #1849, #1084, #416,
   #1014 and #1737.
 - The test suite runs under Wine.
+- `VICTORY_FRAME_RATE`, which sets the rate the title's frames are paced
+  at, or lifts that cap (`0`).
 
 [docs/linux-proton.md](docs/linux-proton.md) has the details: requirements,
 building, running, tests and the known differences with Windows.
