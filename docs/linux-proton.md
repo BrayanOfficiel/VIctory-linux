@@ -5,7 +5,8 @@ with vkd3d-proton for Direct3D 12 and DXVK's DXGI.
 
 Its test suite passes there (2026-11-25): CachyOS, Linux 7.3, AMD RX 6950 XT
 (RADV, Mesa 26.2.6), Proton Experimental `experimental-11.0-20261112`. The
-title itself was not run on this build.
+title runs there too, up to the opening scene (status in the
+[README](../README.md)).
 
 ## Requirements
 
