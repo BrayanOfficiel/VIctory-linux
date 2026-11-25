@@ -36,9 +36,12 @@ Experimental `experimental-11.0-20261112`.
 
 - The title boots, runs its menus at its own 30 frames a second and loads
   the opening scene.
-- In the world, a frame takes about 0.6 seconds with the Wine server
-  `scripts/proton-viewtree.sh` builds, and about 3 seconds with Steam's.
-  The world itself is still mostly unlit, as upstream.
+- In the opening scene, a world frame takes 0.6 to 0.8 seconds with the
+  Wine server `scripts/proton-viewtree.sh` builds. Steam's is about five
+  times slower.
+- The world is drawn and lit, without ray-traced shadows or reflections,
+  as upstream. On AMD cards this needs RADV's waves of 32 lanes, which the
+  scripts ask for.
 - After about 10 minutes of play the title stops itself when one of its
   object pools fills up. This also happens on Windows (upstream issue #698).
 - A PlayStation pad (DualSense) works as an XInput pad, with the Xbox

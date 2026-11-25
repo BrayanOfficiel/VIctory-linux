@@ -56,6 +56,18 @@ export WINEPREFIX="$PREFIX/pfx"
 export WINEDLLOVERRIDES="d3d12,d3d12core,dxgi,d3d11,d3d10core=n,b;${WINEDLLOVERRIDES:-}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEFSYNC=1
+# RADV (Mesa's driver for AMD cards) runs vertex, geometry, mesh and pixel
+# shaders in waves of 64 lanes on RDNA 2. The title's programs are written
+# for waves of 32: in waves of 64 its geometry loses its triangles (the
+# world draws only its sky) and faces lose details (dark eyes). gewave32
+# and pswave32 ask RADV for waves of 32 there; other drivers ignore them.
+for flag in gewave32 pswave32; do
+    case ",${RADV_PERFTEST:-}," in
+        *",$flag,"*) ;;
+        *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;
+    esac
+done
+export RADV_PERFTEST
 # vkd3d-proton's pipeline cache, out of the working directory.
 export VKD3D_SHADER_CACHE_PATH="${VKD3D_SHADER_CACHE_PATH:-$PREFIX/vkd3d-cache}"
 mkdir -p "$VKD3D_SHADER_CACHE_PATH"

@@ -88,6 +88,12 @@ The title paces its frames at 30 a second (it sets a 33.333 ms interval).
 frames at 60 a second, and `VICTORY_FRAME_RATE=0` does not pace them, so
 the menus run as fast as they render. Unset, the title's rate stays.
 
+On AMD cards, RADV (Mesa's Vulkan driver) runs vertex, geometry, mesh and
+pixel shaders in waves of 64 lanes on RDNA 2, while the title's programs
+expect waves of 32. Its geometry then loses its triangles, so the world shows
+only its sky, and faces lose details. Both scripts add `gewave32,pswave32` to
+`RADV_PERFTEST`, keeping any value already set. Other drivers ignore it.
+
 ### A faster Wine server
 
 The title maps and unmaps thousands of memory views a frame. Wine's server
@@ -120,6 +126,10 @@ medians over 3 minutes of the world, two runs each):
 | Copies of title memory | 625 to 751 ms | 121 to 129 ms |
 | Protection changes | 438 ms | 45 to 47 ms |
 | First world frame after launch | 106 to 121 s | 71 s |
+
+Both columns ran the same exe, before the RADV setting above, so the world's
+geometry was missing in both. With it, a world frame took 616 to 798 ms with
+the tree of views.
 
 ### Without Proton (system Wine)
 

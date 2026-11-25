@@ -35,6 +35,14 @@ export WINEPREFIX="$prefix"
 export WINEDEBUG="${WINEDEBUG:--all}"
 # Wine Mono and Gecko are not needed, and would ask to be installed.
 export WINEDLLOVERRIDES="d3d12,d3d12core,dxgi=n;mscoree,mshtml="
+# RADV's waves of 32 lanes for geometry and pixels: see proton-run.sh.
+for flag in gewave32 pswave32; do
+    case ",${RADV_PERFTEST:-}," in
+        *",$flag,"*) ;;
+        *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;
+    esac
+done
+export RADV_PERFTEST
 
 # Made without a display, so no window opens. Crashes then print a
 # backtrace instead of opening a dialog. The mark comes last: a setup cut
