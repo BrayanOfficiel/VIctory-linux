@@ -109,15 +109,31 @@ console=()
 if [[ "$build" == victory || "$build" == klbf-lab ]]; then
     ffx="${XDG_DATA_HOME:-$HOME/.local/share}/victory/fidelityfx"
     sdk="https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v2.4.0/Kits/FidelityFX/signedbin"
-    for dll in amd_fidelityfx_loader_dx12.dll amd_fidelityfx_upscaler_dx12.dll; do
+    # The SDK 2.4.0 files' SHA-256: a download is kept only if it matches.
+    declare -A sums=(
+        [amd_fidelityfx_loader_dx12.dll]=e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb
+        [amd_fidelityfx_upscaler_dx12.dll]=aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace
+    )
+    matches() {
+        echo "${sums[$1]}  $2" | sha256sum --quiet -c - >/dev/null 2>&1
+    }
+    ffx_ok=1
+    for dll in "${!sums[@]}"; do
         if [[ ! -s "$ffx/$dll" ]]; then
             mkdir -p "$ffx"
             echo "run.sh: downloading $dll (AMD FidelityFX SDK 2.4.0, MIT licence)" >&2
-            curl -fL --retry 3 -o "$ffx/$dll.part" "$sdk/$dll" && mv "$ffx/$dll.part" "$ffx/$dll" ||
+            if curl -fL --retry 3 -o "$ffx/$dll.part" "$sdk/$dll" && matches "$dll" "$ffx/$dll.part"; then
+                mv "$ffx/$dll.part" "$ffx/$dll"
+            else
                 rm -f "${ffx:?}/$dll.part"
+            fi
+        fi
+        if ! matches "$dll" "$ffx/$dll"; then
+            echo "run.sh: $ffx/$dll is missing or not the SDK 2.4.0 file: Series X mode" >&2
+            ffx_ok=0
         fi
     done
-    if [[ -s "$ffx/amd_fidelityfx_loader_dx12.dll" && -s "$ffx/amd_fidelityfx_upscaler_dx12.dll" ]]; then
+    if (( ffx_ok )); then
         # This checkout reads the first name, klbf-lab the second.
         default VICTORY_FIDELITYFX_DIR "Z:${ffx//\//\\}"
         default VICTORY_FFX_DIR "$VICTORY_FIDELITYFX_DIR"

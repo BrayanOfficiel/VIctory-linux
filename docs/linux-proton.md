@@ -84,8 +84,9 @@ Series S mode unless `--console` is given: the title then renders at
 on the host and stays in Series X mode). The
 console's upscaler draws a white picture under Proton, so `run.sh`
 downloads the PC one from AMD's FidelityFX SDK 2.4.0 (MIT licence, two DLLs
-in `~/.local/share/victory/fidelityfx`) and points `VICTORY_FIDELITYFX_DIR`
-at it. Without them, it stays in Series X mode. In the prologue's cell, a
+in `~/.local/share/victory/fidelityfx`, checked against the SHA-256 of that
+release's files) and points `VICTORY_FIDELITYFX_DIR` at it. Without them, or
+when a file does not match, it stays in Series X mode. In the prologue's cell, a
 frame took 220 to 270 ms instead of 290 to 380 in Series X mode (RX 6950
 XT).
 
