@@ -1921,6 +1921,10 @@ static TEXTURES_AT: std::sync::Mutex<std::collections::BTreeMap<u64, Vec<usize>>
 /// one memory, and views of buffers are not matched.
 #[cfg(windows)]
 pub(crate) fn alias_source(placed: This) -> Option<This> {
+    // A null shader view has no resource to alias.
+    if placed.is_null() {
+        return None;
+    }
     const WRITTEN: u32 = 0x7; // render target, depth, unordered access
     let b = resource(placed);
     let map = TEXTURES_AT.lock().unwrap_or_else(|e| e.into_inner());
@@ -2537,6 +2541,12 @@ mod tests {
             S_OK
         );
         heap
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_null_shader_view_has_no_alias_source() {
+        assert_eq!(alias_source(std::ptr::null()), None);
     }
 
     /// A title texture's host texture is made when first asked for, and a
