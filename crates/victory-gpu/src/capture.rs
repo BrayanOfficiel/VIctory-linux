@@ -22,10 +22,19 @@ pub(crate) fn folder() -> Option<&'static PathBuf> {
 /// first, whose number depends on how fast the title loaded).
 pub(crate) fn listed(n: u64) -> bool {
     static LIST: std::sync::OnceLock<Vec<u64>> = std::sync::OnceLock::new();
-    LIST.get_or_init(|| numbers("VICTORY_CAPTURE_FRAMES")).contains(&n)
+    NEXT.compare_exchange(n, 0, std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed).is_ok()
+        || LIST.get_or_init(|| numbers("VICTORY_CAPTURE_FRAMES")).contains(&n)
         || WORLD
             .get()
             .is_some_and(|&w| world_offsets().iter().any(|&k| w + k == n))
+}
+
+/// A frame a running title asked to capture (`crate::live`), 0 for none.
+static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The frame after `frame` is captured.
+pub(crate) fn capture_next(frame: u64) {
+    NEXT.store(frame + 1, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn numbers(var: &str) -> Vec<u64> {

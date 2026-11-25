@@ -174,6 +174,15 @@ Both columns ran the same exe, before the RADV setting above, so the world's
 geometry was missing in both. With it, a world frame took 616 to 798 ms with
 the tree of views.
 
+### Commands to a running title
+
+In the diagnostics build, `VICTORY_LIVE` names a file read and removed at
+each presented frame, one command a line: `skip <hash>` and `unskip <hash>`
+cut or restore the pipelines using a shader, `skips` logs those cut,
+`capture` captures the next frame (as `VICTORY_CAPTURE_FRAMES` would, into
+`VICTORY_CAPTURE`) and `mark <text>` writes a line in the log, to cut a
+run's measures. A test then needs no new start of the title.
+
 ### Without Proton (system Wine)
 
 A system Wine works too (reported with Wine 11.22 on RDNA2, RDNA3 and

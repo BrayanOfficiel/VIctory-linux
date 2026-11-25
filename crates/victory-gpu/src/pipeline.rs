@@ -279,13 +279,37 @@ fn parse_skip_hashes(value: &str) -> Vec<String> {
         .collect()
 }
 
+/// The shaders whose pipelines draw nothing: `VICTORY_SKIP_PIPELINES`'s,
+/// then as `crate::live` changes them in a running title.
+#[cfg(all(windows, feature = "diagnostics"))]
+fn skip_hashes() -> &'static std::sync::RwLock<Vec<String>> {
+    static HASHES: OnceLock<std::sync::RwLock<Vec<String>>> = OnceLock::new();
+    HASHES.get_or_init(|| {
+        let value = std::env::var("VICTORY_SKIP_PIPELINES").unwrap_or_default();
+        std::sync::RwLock::new(parse_skip_hashes(&value))
+    })
+}
+
+/// Pipelines using shader `hash` draw nothing from now on (`skip`), or draw
+/// again.
+#[cfg(all(windows, feature = "diagnostics"))]
+pub(crate) fn live_skip(hash: &str, skip: bool) {
+    let mut hashes = skip_hashes().write().unwrap_or_else(|e| e.into_inner());
+    hashes.retain(|h| h != hash);
+    if skip {
+        hashes.push(hash.to_string());
+    }
+}
+
+/// The shaders skipped now.
+#[cfg(all(windows, feature = "diagnostics"))]
+pub(crate) fn live_skips() -> Vec<String> {
+    skip_hashes().read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 #[cfg(all(windows, feature = "diagnostics"))]
 fn skipped_shader(p: &Pipeline) -> Option<&str> {
-    static HASHES: OnceLock<Vec<String>> = OnceLock::new();
-    let hashes = HASHES.get_or_init(|| {
-        let value = std::env::var("VICTORY_SKIP_PIPELINES").unwrap_or_default();
-        parse_skip_hashes(&value)
-    });
+    let hashes = skip_hashes().read().unwrap_or_else(|e| e.into_inner());
     if hashes.is_empty() {
         return None;
     }
