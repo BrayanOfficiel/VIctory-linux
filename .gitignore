@@ -14,6 +14,10 @@
 # Local configuration (contains paths to YOUR files)
 /victory.toml
 
+# Local notes for coding agents
+/AGENT.md
+/CLAUDE.local.md
+
 # Places people tend to drop data into. Keep data outside the repo instead.
 /game/
 /games/
