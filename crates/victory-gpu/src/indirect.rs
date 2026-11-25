@@ -456,37 +456,39 @@ mod tests {
             // SAFETY: inside the mapped 256 bytes.
             unsafe { std::ptr::copy_nonoverlapping(w.as_ptr(), words.add(at / 4), 4) };
         }
-        let list = host.new_list().unwrap();
-        if heaps {
-            let heap = |kind, count| -> ID3D12DescriptorHeap {
-                // SAFETY: plain heap creation.
-                unsafe {
-                    host.device.CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
-                        Type: kind,
-                        NumDescriptors: count,
-                        Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-                        NodeMask: 0,
-                    })
-                }
-                .unwrap()
-            };
-            let views = heap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
-            let samplers = heap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
-            // SAFETY: an open list and shader-visible heaps it keeps alive.
-            unsafe { list.list.SetDescriptorHeaps(&[Some(views.clone()), Some(samplers.clone())]) };
-            list.keep(&views);
-            list.keep(&samplers);
-        }
+        let heap = |kind, count| -> ID3D12DescriptorHeap {
+            // SAFETY: plain heap creation.
+            unsafe {
+                host.device.CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
+                    Type: kind,
+                    NumDescriptors: count,
+                    Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+                    NodeMask: 0,
+                })
+            }
+            .unwrap()
+        };
         // SAFETY: a live buffer (the title's copy, only read).
         let gpu = unsafe { buffer.GetGPUVirtualAddress() };
+        // One list a record: a list's argument buffer is its own, written
+        // anew by each clamp it records.
         let mut outs = Vec::new();
         for (kind, at, stride) in [(0, 0, 16), (2, 16, 12), (3, 32, 12)] {
+            let list = host.new_list().unwrap();
+            if heaps {
+                let views = heap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
+                let samplers = heap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
+                // SAFETY: an open list and shader-visible heaps it keeps alive.
+                unsafe { list.list.SetDescriptorHeaps(&[Some(views.clone()), Some(samplers.clone())]) };
+                list.keep(&views);
+                list.keep(&samplers);
+            }
             let out = bound(&list, gpu + at, (kind, stride, 1)).expect("the clamp is available");
             done(&list, &out);
+            list.close();
+            host.execute(&[&list]);
             outs.push(out);
         }
-        list.close();
-        host.execute(&[&list]);
         let read = |out: &ID3D12Resource| {
             let mut data = std::ptr::null_mut();
             // SAFETY: the list ran (execute waits); the list's own argument
