@@ -98,6 +98,9 @@ struct Guards {
     /// with no question to the runtime (whose lock its page mappings hold
     /// for long).
     alias_of: BTreeMap<usize, Vec<usize>>,
+    /// Pages where a mapping the runtime made starts or ends: one protection
+    /// change cannot span them (the title's tiled heap is a view per page).
+    starts: BTreeSet<usize>,
     /// Tracked pages written this frame and the frame before (diagnostics).
     #[cfg(feature = "diagnostics")]
     written: BTreeSet<usize>,
@@ -110,6 +113,7 @@ static GUARDS: Mutex<Guards> = Mutex::new(Guards {
     holders: BTreeMap::new(),
     busy: Vec::new(),
     alias_of: BTreeMap::new(),
+    starts: BTreeSet::new(),
     #[cfg(feature = "diagnostics")]
     written: BTreeSet::new(),
     #[cfg(feature = "diagnostics")]
@@ -271,9 +275,9 @@ impl Drop for Tracked {
 }
 
 /// Gives write access back to those of `pages` (in order) we guarded, a
-/// run of consecutive pages at a time: under Wine each call waits for its
-/// memory lock, which the title's threads take too. A run that spans two
-/// allocations cannot change at once and is opened page by page.
+/// run at a time ([`runs`]): under Wine each call waits for its memory
+/// lock, which the title's threads take too. Page by page where a run
+/// still spans two allocations.
 fn open(g: &mut Guards, pages: &[usize]) {
     use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
     let set = |from: usize, to: usize| {
@@ -289,20 +293,26 @@ fn open(g: &mut Guards, pages: &[usize]) {
         .collect();
     #[cfg(feature = "diagnostics")]
     crate::copystat::add(crate::copystat::C::OpenPages, guarded.len() as u64);
-    let mut i = 0;
-    while i < guarded.len() {
-        let first = i;
-        while i + 1 < guarded.len() && guarded[i + 1] == guarded[i] + 1 {
-            i += 1;
-        }
-        let run = &guarded[first..=i];
-        i += 1;
-        if !set(run[0], run[run.len() - 1] + 1) {
-            for &page in run {
+    for (from, to) in runs(g, &guarded) {
+        if !set(from, to) {
+            for page in from..to {
                 set(page, page + 1);
             }
         }
     }
+}
+
+/// `pages` (in order) as runs `[from, to)` of consecutive pages, cut where
+/// a mapping of the runtime starts: one protection change covers a run.
+fn runs(g: &Guards, pages: &[usize]) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for &page in pages {
+        match runs.last_mut() {
+            Some((_, to)) if *to == page && !g.starts.contains(&page) => *to += 1,
+            _ => runs.push((page, page + 1)),
+        }
+    }
+    runs
 }
 
 impl Tracked {
@@ -452,7 +462,11 @@ fn protect(g: &mut Guards, pages: &[usize]) -> Vec<usize> {
         }
         // A run of consecutive pages not guarded yet.
         let first = i;
-        while i + 1 < pages.len() && pages[i + 1] == pages[i] + 1 && !g.protected.contains(&pages[i + 1]) {
+        while i + 1 < pages.len()
+            && pages[i + 1] == pages[i] + 1
+            && !g.protected.contains(&pages[i + 1])
+            && !g.starts.contains(&pages[i + 1])
+        {
             i += 1;
         }
         let run = &pages[first..=i];
@@ -481,24 +495,33 @@ fn protect(g: &mut Guards, pages: &[usize]) -> Vec<usize> {
 /// in every tracker holding them. True if one of `[first, last)` was
 /// guarded.
 fn changed(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
-    let guarded = changed_here(g, first, last, save);
-    let others: Vec<usize> = g.alias_of.range(first..last).flat_map(|(_, o)| o.iter().copied()).collect();
+    let mut others: Vec<usize> = g.alias_of.range(first..last).flat_map(|(_, o)| o.iter().copied()).collect();
+    others.sort_unstable();
+    others.dedup();
     #[cfg(feature = "diagnostics")]
     {
         let held = others.iter().filter(|p| g.holders.contains_key(p)).count();
         crate::copystat::add(crate::copystat::C::AliasMarks, held as u64);
     }
+    // Every guarded page among them opens at once, in runs (the other
+    // mappings of consecutive pages are often consecutive too).
+    let here: Vec<usize> = g.protected.range(first..last).copied().collect();
+    let mut guarded: Vec<usize> = others.iter().copied().filter(|p| g.protected.contains(p)).collect();
+    guarded.extend(&here);
+    guarded.sort_unstable();
+    guarded.dedup();
+    open(g, &guarded);
+    mark(g, first, last, save);
     for page in others {
-        changed_here(g, page, page + 1, save);
+        mark(g, page, page + 1, save);
     }
-    guarded
+    !here.is_empty()
 }
 
-/// [`changed`] of `[first, last)` alone. With `save`, before the write
-/// lands: trackers armed for a page they had taken keep its bytes.
-fn changed_here(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
-    let guarded: Vec<usize> = g.protected.range(first..last).copied().collect();
-    open(g, &guarded);
+/// Marks pages `[first, last)` changed in every tracker holding them. With
+/// `save`, before the write lands: trackers armed for a page they had
+/// taken keep its bytes.
+fn mark(g: &mut Guards, first: usize, last: usize, save: bool) {
     for (&page, holders) in g.holders.range(first..last) {
         for c in holders {
             let first_write = c.0.lock().unwrap_or_else(|e| e.into_inner()).insert(page);
@@ -509,7 +532,6 @@ fn changed_here(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
         #[cfg(feature = "diagnostics")]
         g.written.insert(page);
     }
-    !guarded.is_empty()
 }
 
 /// At each presented frame (diagnostics): counts the tracked pages written
@@ -564,6 +586,8 @@ pub fn writing(at: usize, len: usize) -> Writing {
 pub fn title_memory_remapped(at: usize, len: usize) {
     let (first, last) = (at / PAGE, at.saturating_add(len).div_ceil(PAGE));
     let mut g = guards();
+    g.starts.insert(first);
+    g.starts.insert(last);
     // What it showed is gone already: nothing to keep.
     changed(&mut g, first, last, false);
     // What it showed is not what it shows now: its links go, both ways.
@@ -838,6 +862,20 @@ pub(crate) mod tests {
         free(p);
     }
 
+    /// A write the guards do not see opens its blocks' other mappings too,
+    /// exactly those: their tracker sees the change, the blocks around stay
+    /// guarded.
+    #[test]
+    fn writes_open_exactly_their_blocks_other_mappings() {
+        let (a, b) = twin_views(8);
+        let t = track(b, 8 * PAGE, true).expect("tracked");
+        assert_eq!(t.take(b, b + 8 * PAGE), [(b, b + 8 * PAGE)]);
+        drop(writing(a + 2 * PAGE + 10, 3 * PAGE - 20));
+        let open: Vec<bool> = (0..8).map(|k| writable(b + k * PAGE)).collect();
+        assert_eq!(open, [false, false, true, true, true, false, false, false]);
+        assert_eq!(t.take(b, b + 8 * PAGE), [(b + 2 * PAGE, b + 5 * PAGE)]);
+    }
+
     /// `pages` pages of a fresh pagefile section mapped twice (as the
     /// title's pool view and tiled heap show the same physical pages),
     /// reported as the runtime does when it maps them.
@@ -862,6 +900,8 @@ pub(crate) mod tests {
             )
         };
         assert!(a != 0 && b != 0);
+        title_memory_remapped(a, len);
+        title_memory_remapped(b, len);
         for k in (0..len).step_by(PAGE) {
             title_memory_aliased(b + k, &[a + k]);
         }
