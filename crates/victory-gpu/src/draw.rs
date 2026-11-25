@@ -2432,6 +2432,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// up to 24 times a frame).
     #[test]
     fn a_texture_is_uploaded_once_per_submission_and_only_when_written() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };
@@ -2479,6 +2482,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// was recorded.
     #[test]
     fn a_list_run_after_a_host_write_keeps_the_host_texels() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };
@@ -2529,6 +2535,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// makes it again with its bytes from title memory.
     #[test]
     fn a_texture_given_up_is_made_again_with_its_bytes_and_recorded_lists_keep_it() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };
@@ -2569,6 +2578,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// of one upload buffer): each reads its own bytes.
     #[test]
     fn textures_uploaded_together_each_read_their_own_bytes() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };
@@ -2610,6 +2622,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// the same bytes again are uploaded.
     #[test]
     fn a_texture_owning_its_pages_is_uploaded_on_any_write() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };
@@ -2648,6 +2663,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     /// contents.
     #[test]
     fn a_write_into_one_mip_uploads_that_mip_alone() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         let Some(host) = crate::host::host() else {
             return; // no host GPU here
         };

@@ -827,6 +827,9 @@ void main() {
     /// writes in the copies.
     #[test]
     fn a_submission_that_missed_leaves_the_copies_at_once() {
+        if crate::host::on_wine() {
+            return; // Wine's HLSL compiler cannot build this test's shaders
+        }
         use crate::watch::PAGE;
         use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
         let (Some(host), Some(views)) = (crate::host::host(), heap()) else {
