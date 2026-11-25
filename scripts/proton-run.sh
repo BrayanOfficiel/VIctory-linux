@@ -53,6 +53,16 @@ if [[ ! -f "$PREFIX/.no-crash-dialog" ]]; then
         /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null 2>&1 && touch "$PREFIX/.no-crash-dialog"
 fi
 
+# Pads Wine would show as raw HID devices (a DualSense) go through SDL
+# instead and show as XInput pads, the kind VIctory reads. Wine's HID bus
+# reads this when it starts, so the Wine server is let go first.
+if [[ ! -f "$PREFIX/.pads-as-xinput" ]]; then
+    env -u DISPLAY -u WAYLAND_DISPLAY "$PROTON/files/bin/wine" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
+        /v DisableHidraw /t REG_DWORD /d 1 /f >/dev/null 2>&1 && touch "$PREFIX/.pads-as-xinput"
+    timeout 30 "$PROTON/files/bin/wineserver" -w ||
+        echo "proton-run.sh: pads show as XInput once every program in $PREFIX has exited" >&2
+fi
+
 WINE="$PROTON/files/bin/wine"
 if [[ -n "${VICTORY_EXE:-}" ]]; then
     exec "$WINE" "$VICTORY_EXE" "$@"

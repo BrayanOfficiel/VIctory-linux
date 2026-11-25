@@ -48,6 +48,16 @@ if [ ! -f "$prefix/.victory" ]; then
     touch "$prefix/.victory"
 fi
 
+# Pads Wine would show as raw HID devices (a DualSense) go through SDL
+# instead and show as XInput pads, the kind VIctory reads. Wine's HID bus
+# reads this when it starts, so the Wine server is let go first.
+if [ ! -f "$prefix/.pads-as-xinput" ]; then
+    env -u DISPLAY -u WAYLAND_DISPLAY wine reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
+        /v DisableHidraw /t REG_DWORD /d 1 /f >/dev/null && touch "$prefix/.pads-as-xinput"
+    timeout 30 wineserver -w ||
+        echo "wine-run.sh: pads show as XInput once every program in $prefix has exited" >&2
+fi
+
 # Copied again when the Proton build changes.
 system32=$prefix/drive_c/windows/system32
 for dll in vkd3d-proton/x86_64-windows/d3d12.dll vkd3d-proton/x86_64-windows/d3d12core.dll \

@@ -55,6 +55,11 @@ off in that prefix: a crash prints its backtrace in the terminal instead.
 With an Xbox controller connected, the keyboard is not a pad (as on
 Windows), so `VICTORY_KEYS` presses do not reach the title either.
 
+VIctory reads XInput pads. Wine shows a PlayStation pad (a DualSense) as a
+raw HID device, which no XInput slot answers, so both scripts set Wine's
+`DisableHidraw` in their prefix: the pad then goes through SDL and shows as
+an XInput pad, with the Xbox buttons' names in the title.
+
 The title's own watchdog ends the process when its main thread has not
 advanced for about 30 seconds, which a world load under Wine can exceed.
 `VICTORY_NO_WATCHDOG=1` turns it off on build 1.0.2.1: the loader patches
