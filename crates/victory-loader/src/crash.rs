@@ -71,21 +71,41 @@ pub fn log_crashes_to(file: std::path::PathBuf) {
 /// Appends a failure that is not an exception (the host GPU's) to the crash
 /// log, with the title's last debug output, and prints it.
 pub fn log_crash(text: &str) {
-    let text = format!("{text}
-{}", report_end());
+    let text = format!(
+        "{text}
+{}",
+        report_end()
+    );
     eprint!("{text}");
     append_to_log(&text);
 }
 
 fn append_to_log(text: &str) {
-    use std::io::Write;
     let Some(file) = LOG.get() else { return };
+    let _ = append_record(file, text);
+}
+
+fn append_record(file: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind, Write};
+
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let opened = std::fs::OpenOptions::new().create(true).append(true).open(file);
-    if let Ok(mut f) = opened {
-        let _ = write!(f, "unix time {now}, process {}\n{text}\n", std::process::id());
+    let record = format!("unix time {now}, process {}\n{text}\n", std::process::id());
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)?;
+    // Formatting directly into the file can append fragments separately.
+    // Use one append, with no lock to acquire from an exception handler.
+    if file.write(record.as_bytes())? == record.len() {
+        Ok(())
+    } else {
+        // Retrying a short write could put another report between its pieces.
+        Err(Error::new(
+            ErrorKind::WriteZero,
+            "incomplete crash record append",
+        ))
     }
 }
 
@@ -112,7 +132,9 @@ fn title_output() -> String {
     let Ok(said) = SAID.try_lock() else {
         return String::new();
     };
-    said.iter().map(|l| format!("  title said: {l}\n")).collect()
+    said.iter()
+        .map(|l| format!("  title said: {l}\n"))
+        .collect()
 }
 
 /// The host's line in a crash report. Its CPU and Windows build decide what
@@ -223,7 +245,11 @@ unsafe fn emulate_amd_only(info: *mut EXCEPTION_POINTERS) -> bool {
                 // Flags are left as they are: a Zen 3 changes none, for
                 // known counters or not (measured in user mode).
                 let known = context.Rcx as u32 <= 1;
-                let cycles = if known { std::arch::x86_64::_rdtsc() } else { 0 };
+                let cycles = if known {
+                    std::arch::x86_64::_rdtsc()
+                } else {
+                    0
+                };
                 context.Rax = cycles & 0xffff_ffff;
                 context.Rdx = cycles >> 32;
             }
@@ -409,9 +435,21 @@ unsafe fn clzero(context: &mut CONTEXT) -> bool {
     }
     if (7..=0x1000 - 8).contains(&page) {
         // SAFETY: inside the page the CPU fetched the instruction from.
-        let (before, after) =
-            unsafe { (&*((at - 7) as *const [u8; 7]), &*((at + 3) as *const [u8; 5])) };
-        if let [rex @ (0x48 | 0x4c), 0x89, load, add_rex @ (0x48 | 0x49), 0x83, add, 0x40] = *before
+        let (before, after) = unsafe {
+            (
+                &*((at - 7) as *const [u8; 7]),
+                &*((at + 3) as *const [u8; 5]),
+            )
+        };
+        if let [
+            rex @ (0x48 | 0x4c),
+            0x89,
+            load,
+            add_rex @ (0x48 | 0x49),
+            0x83,
+            add,
+            0x40,
+        ] = *before
             && let [cmp @ .., 0x72, 0xf1] = after
             && let Some((a, b)) = compare_registers(cmp)
             && load & 0xc7 == 0xc0
@@ -431,8 +469,7 @@ unsafe fn clzero(context: &mut CONTEXT) -> bool {
                 context.Rax = next;
                 *gpr(context, a) = next.wrapping_add(0x40);
             }
-            context.EFlags =
-                context.EFlags & !CMP_FLAGS | cmp_flags(*gpr(context, a), limit);
+            context.EFlags = context.EFlags & !CMP_FLAGS | cmp_flags(*gpr(context, a), limit);
             context.Rip += 8;
             return true;
         }
@@ -447,7 +484,10 @@ fn compare_registers(code: &[u8]) -> Option<(u8, u8)> {
     let &[rex @ 0x48..=0x4f, 0x39, modrm] = code else {
         return None;
     };
-    (modrm >> 6 == 3).then_some((modrm & 7 | (rex & 1) << 3, (modrm >> 3) & 7 | (rex & 4) << 1))
+    (modrm >> 6 == 3).then_some((
+        modrm & 7 | (rex & 1) << 3,
+        (modrm >> 3) & 7 | (rex & 4) << 1,
+    ))
 }
 
 /// The general register numbered `n` as instructions encode it.
@@ -509,12 +549,20 @@ unsafe fn sse4a(code: *const u8, xmm: &mut [M128A; 16]) -> Option<usize> {
         ((b(at + 3), b(at + 4)), at + 5)
     } else {
         // extrq reads its fields from src's low half, insertq from its high.
-        let f = if prefix == 0x66 { xmm[src].Low } else { xmm[src].High as u64 };
+        let f = if prefix == 0x66 {
+            xmm[src].Low
+        } else {
+            xmm[src].High as u64
+        };
         ((f as u8, (f >> 8) as u8), at + 3)
     };
     let (n, at_bit) = (u32::from(fields.0 & 63), u32::from(fields.1 & 63));
     let bits = if n == 0 { 64 } else { n };
-    let mask = if bits == 64 { u64::MAX } else { (1u64 << bits) - 1 };
+    let mask = if bits == 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
     if prefix == 0x66 {
         // extrq: register form takes its fields from src, works on dst.
         if immediate && (modrm >> 3) & 7 != 0 {
@@ -590,8 +638,7 @@ unsafe fn thrown(p: &[usize]) -> String {
         let types = p[3] + rva(p[2] + 12);
         let name = |i: usize| {
             let descriptor = p[3] + rva(p[3] + rva(types + 4 + 4 * i) + 4);
-            std::ffi::CStr::from_ptr((descriptor + 16) as *const std::ffi::c_char)
-                .to_string_lossy()
+            std::ffi::CStr::from_ptr((descriptor + 16) as *const std::ffi::c_char).to_string_lossy()
         };
         let first = name(0);
         let value = match &*first {
@@ -831,6 +878,49 @@ mod tests {
     use windows_sys::Win32::System::Diagnostics::Debug::{
         EXCEPTION_RECORD, RtlCaptureContext, RtlCaptureStackBackTrace,
     };
+
+    #[test]
+    fn concurrent_crash_records_stay_together() {
+        const THREADS: usize = 8;
+        const RECORDS: usize = 16;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("synthetic-crashes.txt");
+        let ready = std::sync::Barrier::new(THREADS);
+        let body = "x".repeat(8192);
+        std::thread::scope(|scope| {
+            for thread in 0..THREADS {
+                let (file, ready, body) = (&file, &ready, &body);
+                scope.spawn(move || {
+                    ready.wait();
+                    for record in 0..RECORDS {
+                        super::append_record(file, &format!("record {thread}:{record}\n{body}"))
+                            .unwrap();
+                    }
+                });
+            }
+        });
+
+        let log = std::fs::read_to_string(file).unwrap();
+        let mut lines = log.lines();
+        let mut seen = std::collections::BTreeSet::new();
+        let process = std::process::id().to_string();
+        while let Some(header) = lines.next() {
+            let (time, pid) = header
+                .strip_prefix("unix time ")
+                .and_then(|line| line.split_once(", process "))
+                .expect("each record starts with a complete header");
+            assert!(time.parse::<u64>().is_ok());
+            assert_eq!(pid, process);
+            assert!(seen.insert(lines.next().expect("record identifier")));
+            assert!(lines.next().is_some_and(|line| line == body));
+        }
+        for thread in 0..THREADS {
+            for record in 0..RECORDS {
+                assert!(seen.remove(format!("record {thread}:{record}").as_str()));
+            }
+        }
+        assert!(seen.is_empty());
+    }
 
     /// What [`capture_frames`] saw: our [`unwind`], then the system's walk.
     type Captured = (Vec<u64>, Vec<usize>);
@@ -1188,7 +1278,18 @@ mod tests {
 
     #[test]
     fn compare_sets_flags_like_the_cpu() {
-        let values = [0, 1, 0x40, 0x7f, 0x80, 0xff, 1 << 63, (1 << 63) - 1, !0, !0 - 0x40];
+        let values = [
+            0,
+            1,
+            0x40,
+            0x7f,
+            0x80,
+            0xff,
+            1 << 63,
+            (1 << 63) - 1,
+            !0,
+            !0 - 0x40,
+        ];
         for a in values {
             for b in values {
                 assert_eq!(cmp_flags(a, b), native_compare(a, b), "cmp {a:#x}, {b:#x}");
@@ -1332,10 +1433,15 @@ mod tests {
         context.Rax = start;
         context.R10 = start + 100;
         context.EFlags = 0x202 | CMP_FLAGS;
-        let code = [0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x40, 0x4c, 0x39, 0xd0, 0x72, 0xf4];
+        let code = [
+            0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x40, 0x4c, 0x39, 0xd0, 0x72, 0xf4,
+        ];
         assert!(emulate_in(&code, 0, &mut context));
         assert_eq!((context.Rip, context.Rax), (12, start + 128));
-        assert_eq!(context.EFlags, 0x202 | native_compare(start + 128, start + 100));
+        assert_eq!(
+            context.EFlags,
+            0x202 | native_compare(start + 128, start + 100)
+        );
         assert_eq!(zeroed(&mem), [true, true, false]);
         // mov rax, rdx; add rdx, 0x40; clzero; cmp rdx, r8; jb (faults at clzero,
         // after the first pass's mov and add)
@@ -1351,7 +1457,10 @@ mod tests {
             0xf1,
         ];
         assert!(emulate_in(&code, 7, &mut context));
-        assert_eq!((context.Rip, context.Rax, context.Rdx), (15, start + 128, start + 192));
+        assert_eq!(
+            (context.Rip, context.Rax, context.Rdx),
+            (15, start + 128, start + 192)
+        );
         assert_eq!(context.EFlags, native_compare(start + 192, start + 192));
         assert_eq!(zeroed(&mem), [false, true, true]);
         // cmp rax, rax is not the loop (the limit would move with rax): one
@@ -1361,7 +1470,9 @@ mod tests {
         let mut context: CONTEXT = unsafe { std::mem::zeroed() };
         context.Rax = mem.0.as_mut_ptr() as u64;
         context.EFlags = 0x202;
-        let code = [0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x40, 0x48, 0x39, 0xc0, 0x72, 0xf4];
+        let code = [
+            0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x40, 0x48, 0x39, 0xc0, 0x72, 0xf4,
+        ];
         assert!(emulate_in(&code, 0, &mut context));
         assert_eq!((context.Rip, context.EFlags), (3, 0x202));
         assert_eq!(zeroed(&mem), [true, false, false]);
@@ -1371,7 +1482,9 @@ mod tests {
         let mut context: CONTEXT = unsafe { std::mem::zeroed() };
         context.Rax = mem.0.as_mut_ptr() as u64 + 70;
         context.R10 = !0;
-        let code = [0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x20, 0x4c, 0x39, 0xd0, 0x72, 0xf4];
+        let code = [
+            0x0f, 0x01, 0xfc, 0x48, 0x83, 0xc0, 0x20, 0x4c, 0x39, 0xd0, 0x72, 0xf4,
+        ];
         assert!(emulate_in(&code, 0, &mut context));
         assert_eq!(context.Rip, 3);
         assert_eq!(zeroed(&mem), [false, true, false]);

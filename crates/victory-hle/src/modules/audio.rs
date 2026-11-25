@@ -100,21 +100,55 @@ impl Heap {
     }
 }
 
+/// Why the APU heap could not give a block.
+#[derive(Debug)]
+enum HeapRefusal {
+    /// No free device-address range fits the request.
+    NoDeviceRange { size: usize, align: usize },
+    /// The host allocator returned null for the block.
+    HostAllocator { len_bytes: usize },
+}
+
+impl HeapRefusal {
+    /// Reports the refusal. Called with no lock held: a host refusal is
+    /// written to `crashes.log`, so its cause is on record if the title fails
+    /// after it.
+    fn report(&self) {
+        match *self {
+            Self::NoDeviceRange { size, align } => tracing::warn!(
+                size,
+                align,
+                "no free APU device-address range fits the request"
+            ),
+            Self::HostAllocator { len_bytes } => super::xmem::report_allocator_refusal(len_bytes),
+        }
+    }
+}
+
 /// Zeroed host memory and its device address.
-fn heap_alloc(size: usize, align: usize) -> Option<(*mut u8, u32)> {
-    let layout = Layout::from_size_align(size.max(1), align.max(16)).ok()?;
+fn heap_alloc(size: usize, align: usize) -> Result<(*mut u8, u32), HeapRefusal> {
     let mut heap = lock(&HEAP);
-    let apu = heap.take(u32::try_from(layout.size()).ok()?, align as u32)?;
+    let fit = Layout::from_size_align(size.max(1), align.max(16))
+        .ok()
+        .and_then(|layout| {
+            let apu = heap.take(u32::try_from(layout.size()).ok()?, align as u32)?;
+            Some((layout, apu))
+        });
+    let Some((layout, apu)) = fit else {
+        return Err(HeapRefusal::NoDeviceRange { size, align });
+    };
     // SAFETY: non-zero size.
     let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
     if ptr.is_null() {
         heap.give_back(apu, apu + layout.size() as u32);
-        return None;
+        return Err(HeapRefusal::HostAllocator {
+            len_bytes: layout.size(),
+        });
     }
     heap.blocks
         .insert(ptr as usize, Block { size, apu, layout });
     heap.by_apu.insert(apu, ptr as usize);
-    Some((ptr, apu))
+    Ok((ptr, apu))
 }
 
 fn heap_free(ptr: *mut u8) {
@@ -195,8 +229,12 @@ pub extern "system" fn ApuAlloc(
     if out.is_null() || size == 0 || align < 4 || !align.is_power_of_two() {
         return E_INVALIDARG;
     }
-    let Some((ptr, address)) = heap_alloc(size as usize, align as usize) else {
-        return E_OUTOFMEMORY;
+    let (ptr, address) = match heap_alloc(size as usize, align as usize) {
+        Ok(block) => block,
+        Err(refusal) => {
+            refusal.report();
+            return E_OUTOFMEMORY;
+        }
     };
     // SAFETY: checked non-null; optional out parameter checked below.
     unsafe {
@@ -254,9 +292,14 @@ pub extern "system" fn AcpHalAllocateShapeContexts(contexts: *mut ShapeContexts)
         if counts[i] == 0 {
             continue;
         }
-        let Some((ptr, apu)) = heap_alloc(counts[i] as usize * CONTEXT_BYTES[i], 256) else {
-            arrays.iter().for_each(|&p| heap_free(p.cast()));
-            return E_OUTOFMEMORY;
+        let (ptr, apu) = match heap_alloc(counts[i] as usize * CONTEXT_BYTES[i], 256) {
+            Ok(block) => block,
+            Err(refusal) => {
+                arrays.iter().for_each(|&p| heap_free(p.cast()));
+                drop(allocated);
+                refusal.report();
+                return E_OUTOFMEMORY;
+            }
         };
         (arrays[i], addresses[i]) = (ptr.cast(), apu);
     }
@@ -492,9 +535,10 @@ impl Xma {
         let start = Instant::now();
         let mut active = 0;
         for index in 0..self.voices.len() as u32 {
-            if let (Some(context), Some(voice)) =
-                (self.context(index), &mut *lock(&self.voices[index as usize]))
-            {
+            if let (Some(context), Some(voice)) = (
+                self.context(index),
+                &mut *lock(&self.voices[index as usize]),
+            ) {
                 pump(context, voice);
                 active += 1;
             }
@@ -656,7 +700,10 @@ fn dump_input(index: u32, context: Context) {
     );
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join(format!("{n:02}-{index}.ctx")), words);
-    let _ = std::fs::write(dir.join(format!("{n:02}-{index}.xma")), input.unwrap_or_default());
+    let _ = std::fs::write(
+        dir.join(format!("{n:02}-{index}.xma")),
+        input.unwrap_or_default(),
+    );
 }
 
 /// Starts the decoding thread on the first enabled voice, and has it fill
@@ -1166,7 +1213,10 @@ mod tests {
         // Blocks 2, 3 and 0 written (silence), 1 left for the title, and
         // nothing past the ring.
         assert_eq!((write, writable), (1, 0));
-        assert!(ring[0x400..].iter().all(|&b| b == 0x55), "written past the ring");
+        assert!(
+            ring[0x400..].iter().all(|&b| b == 0x55),
+            "written past the ring"
+        );
         let block = |n: usize| &ring[n * 0x100..(n + 1) * 0x100];
         assert!([0, 2, 3].iter().all(|&n| block(n).iter().all(|&b| b == 0)));
         assert!(block(1).iter().all(|&b| b == 0x55));

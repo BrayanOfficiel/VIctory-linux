@@ -45,8 +45,13 @@ fn forced() -> Option<Duration> {
         let rate = std::env::var("VICTORY_FRAME_RATE").ok()?;
         let forced = forced_interval(&rate);
         match forced {
-            Some(interval) => tracing::info!(?interval, "VICTORY_FRAME_RATE={rate}: frame interval forced"),
-            None => tracing::warn!("VICTORY_FRAME_RATE={rate} is not a rate: the title's interval stays"),
+            Some(interval) => tracing::info!(
+                ?interval,
+                "VICTORY_FRAME_RATE={rate}: frame interval forced"
+            ),
+            None => tracing::warn!(
+                "VICTORY_FRAME_RATE={rate} is not a rate: the title's interval stays"
+            ),
         }
         forced
     })
@@ -222,7 +227,9 @@ pub(crate) fn presented() {
 #[cfg(feature = "diagnostics")]
 pub(crate) fn log() {
     let [waits, at_once, shared] = [0, 1, 2].map(|i| WAITS[i].swap(0, Ordering::Relaxed));
-    tracing::info!("frame waits: {waits}, {at_once} of them ended at once; presents sharing a flip tick: {shared}");
+    tracing::info!(
+        "frame waits: {waits}, {at_once} of them ended at once; presents sharing a flip tick: {shared}"
+    );
 }
 
 /// Device method: no statistics are kept, so none are returned.
@@ -294,11 +301,21 @@ mod tests {
         // once, on the latest tick passed; the next one waits for the next.
         std::thread::sleep(Duration::from_millis(110));
         let before = Instant::now();
-        assert_eq!(wait(null, FLIP, u32::MAX, std::ptr::null(), 0, &mut token), S_OK);
-        assert!(before.elapsed() < Duration::from_millis(10), "{:?}", before.elapsed());
+        assert_eq!(
+            wait(null, FLIP, u32::MAX, std::ptr::null(), 0, &mut token),
+            S_OK
+        );
+        assert!(
+            before.elapsed() < Duration::from_millis(10),
+            "{:?}",
+            before.elapsed()
+        );
         let late = LAST[2].load(Ordering::Relaxed);
         assert!(late >= flips[3] + 2, "{late} after {}", flips[3]);
-        assert_eq!(wait(null, FLIP, u32::MAX, std::ptr::null(), 0, &mut token), S_OK);
+        assert_eq!(
+            wait(null, FLIP, u32::MAX, std::ptr::null(), 0, &mut token),
+            S_OK
+        );
         assert_eq!(LAST[2].load(Ordering::Relaxed), late + 1);
     }
 
@@ -318,8 +335,14 @@ mod tests {
 
     #[test]
     fn a_frame_rate_sets_the_interval_and_zero_paces_nothing() {
-        assert_eq!(forced_interval("60"), Some(Duration::from_nanos(16_666_667)));
-        assert_eq!(forced_interval(" 144 "), Some(Duration::from_nanos(6_944_444)));
+        assert_eq!(
+            forced_interval("60"),
+            Some(Duration::from_nanos(16_666_667))
+        );
+        assert_eq!(
+            forced_interval(" 144 "),
+            Some(Duration::from_nanos(6_944_444))
+        );
         assert_eq!(forced_interval("0"), Some(UNPACED));
         for not_a_rate in ["", "fast", "-30", "inf", "NaN"] {
             assert_eq!(forced_interval(not_a_rate), None, "{not_a_rate:?}");

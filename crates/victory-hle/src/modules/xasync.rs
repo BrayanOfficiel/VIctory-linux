@@ -495,6 +495,10 @@ struct Call {
     provider: Provider,
     context: usize,
     identity: usize,
+    /// Set by the first completion, which then runs without a lock: the
+    /// provider's cleanup may wait for a thread completing the same call.
+    claimed: AtomicBool,
+    /// The status is published.
     done: Mutex<bool>,
     finished: Condvar,
 }
@@ -593,6 +597,7 @@ pub fn XAsyncBegin(
         provider,
         context: context as usize,
         identity: identity as usize,
+        claimed: AtomicBool::new(false),
         done: Mutex::new(false),
         finished: Condvar::new(),
     });
@@ -670,8 +675,7 @@ fn complete_call(call: &Call, block: *mut AsyncBlock, result: HRESULT, required_
     if result == E_PENDING {
         return;
     }
-    let mut done = lock(&call.done);
-    if *done {
+    if call.claimed.swap(true, Ordering::AcqRel) {
         return;
     }
     // Read before publishing: once the status is set, the title may free
@@ -684,9 +688,8 @@ fn complete_call(call: &Call, block: *mut AsyncBlock, result: HRESULT, required_
     }
     size.store(required_size, Ordering::Release);
     status.store(result as u32 as usize, Ordering::Release);
-    *done = true;
+    *lock(&call.done) = true;
     call.finished.notify_all();
-    drop(done);
     if routine.is_some() {
         let task = Task::new(block.cast(), complete);
         match queue(handle) {
@@ -725,7 +728,9 @@ pub fn XAsyncGetResultSize(block: *mut AsyncBlock, out: *mut usize) -> HRESULT {
 /// provider completed it first. A completed call is left alone.
 pub fn XAsyncCancel(block: *mut AsyncBlock) {
     if let Some(call) = call(block) {
-        if *lock(&call.done) {
+        // A completion that claimed the call may still be running its
+        // cleanup, with the status not yet published: leave it alone too.
+        if call.claimed.load(Ordering::Acquire) {
             return;
         }
         call.provider(OP_CANCEL, block, 0, std::ptr::null_mut());
@@ -840,7 +845,10 @@ pub fn pending_with(
     identity: *const c_void,
     work: impl FnOnce() -> Result<Vec<u8>, HRESULT> + Send + 'static,
 ) -> HRESULT {
-    type Data = Mutex<(Option<Box<dyn FnOnce() -> Result<Vec<u8>, HRESULT> + Send>>, Vec<u8>)>;
+    type Data = Mutex<(
+        Option<Box<dyn FnOnce() -> Result<Vec<u8>, HRESULT> + Send>>,
+        Vec<u8>,
+    )>;
     extern "system" fn provider(op: u32, data: *const ProviderData) -> HRESULT {
         // SAFETY: the runtime passes valid provider data; the context is the
         // boxed state until cleanup frees it.
@@ -851,7 +859,11 @@ pub fn pending_with(
             OP_CLEANUP => drop(unsafe { Box::from_raw(state) }),
             OP_BEGIN => {
                 // SAFETY: as above; cleanup waits for completion.
-                let work = unsafe { &*state }.lock().unwrap_or_else(|e| e.into_inner()).0.take();
+                let work = unsafe { &*state }
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0
+                    .take();
                 let (block, state) = (data.block as usize, state as usize);
                 std::thread::spawn(move || {
                     let result = work.map_or(Err(E_ABORT), |work| work());
@@ -880,7 +892,13 @@ pub fn pending_with(
     }
     let state: Box<Data> = Box::new(Mutex::new((Some(Box::new(work)), Vec::new())));
     let context = Box::into_raw(state);
-    let hr = XAsyncBegin(block, context.cast(), identity, std::ptr::null(), Some(provider));
+    let hr = XAsyncBegin(
+        block,
+        context.cast(),
+        identity,
+        std::ptr::null(),
+        Some(provider),
+    );
     if hr < 0 {
         // SAFETY: refused before the call existed; still ours.
         drop(unsafe { Box::from_raw(context) });
@@ -1407,7 +1425,13 @@ mod tests {
         };
         let identity = 0x77 as *const c_void;
         assert_eq!(
-            XAsyncBegin(&mut block, std::ptr::null_mut(), identity, std::ptr::null(), Some(provider)),
+            XAsyncBegin(
+                &mut block,
+                std::ptr::null_mut(),
+                identity,
+                std::ptr::null(),
+                Some(provider)
+            ),
             S_OK
         );
         assert!(XTaskQueueDispatch(q, WORK, 0));
@@ -1418,11 +1442,20 @@ mod tests {
         let mut value = 0u64;
         let mut used = 0;
         assert_eq!(
-            XAsyncGetResult(&mut block, identity, 8, (&mut value as *mut u64).cast(), &mut used),
+            XAsyncGetResult(
+                &mut block,
+                identity,
+                8,
+                (&mut value as *mut u64).cast(),
+                &mut used
+            ),
             S_OK
         );
         assert_eq!((value, used), (0x1234, 8));
-        assert!(call(&raw mut block).is_none(), "the call ends with its result");
+        assert!(
+            call(&raw mut block).is_none(),
+            "the call ends with its result"
+        );
         XTaskQueueCloseHandle(q);
     }
 
@@ -1660,5 +1693,41 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(*lock(&EVENTS), ["canceled", "terminated"]);
         XTaskQueueCloseHandle(q);
+    }
+
+    /// The call a test provider looks at in its cleanup, and what it saw
+    /// (1: the completion lock was free, 2: held).
+    static CLEANED: Mutex<Option<Arc<Call>>> = Mutex::new(None);
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+
+    extern "system" fn cleanup_checks(op: u32, _: *const ProviderData) -> HRESULT {
+        if op == OP_CLEANUP {
+            let call = CLEANED.lock().unwrap().clone();
+            let free = call.is_some_and(|c| c.done.try_lock().is_ok());
+            SEEN.store(if free { 1 } else { 2 }, Ordering::SeqCst);
+        }
+        S_OK
+    }
+
+    /// A failed call's cleanup runs without the completion lock: a cleanup
+    /// that waits for a thread completing the same call would otherwise
+    /// deadlock with it. The status is published after the cleanup.
+    #[test]
+    fn cleanup_runs_without_the_completion_lock() {
+        let mut block = AsyncBlock {
+            queue: std::ptr::null(),
+            context: std::ptr::null_mut(),
+            callback: None,
+            internal: [0; 4],
+        };
+        let (context, none) = (std::ptr::null_mut(), std::ptr::null());
+        let provider = Some(cleanup_checks as Provider);
+        let begun = XAsyncBegin(&mut block, context, none, none.cast(), provider);
+        assert_eq!(begun, S_OK);
+        *CLEANED.lock().unwrap() = call(&mut block);
+        XAsyncComplete(&mut block, E_ABORT, 0);
+        assert_eq!(SEEN.load(Ordering::SeqCst), 1, "cleanup ran under the lock");
+        assert_eq!(XAsyncGetStatus(&mut block, true), E_ABORT);
+        *CLEANED.lock().unwrap() = None;
     }
 }

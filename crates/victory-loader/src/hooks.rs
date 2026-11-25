@@ -69,7 +69,10 @@ unsafe fn apply(base: usize, p: &Patch) -> bool {
     // SAFETY: the offset is inside the mapped .text of this exact build.
     let now = unsafe { std::slice::from_raw_parts(at, p.expect.len()) };
     if now != p.expect || p.new.len() != p.expect.len() {
-        tracing::warn!(what = p.what, "hook skipped: the bytes are not the expected ones");
+        tracing::warn!(
+            what = p.what,
+            "hook skipped: the bytes are not the expected ones"
+        );
         return false;
     }
     let mut old = 0;

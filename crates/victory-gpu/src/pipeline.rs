@@ -18,7 +18,9 @@
 
 use std::collections::HashMap;
 use std::mem::offset_of;
-use std::sync::{Arc, Mutex, OnceLock};
+#[cfg(windows)]
+use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 use crate::object::{self, E_INVALIDARG, HRESULT, Iid, Object, PIPELINE, Table, This, guid};
 use crate::resource::PAGEABLE_IIDS;
@@ -95,6 +97,13 @@ impl Shader {
             translated: OnceLock::new(),
         }
     }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn for_test(stage: &'static str, translated: Translated) -> Arc<Shader> {
+        let shader = Shader::new(stage, b"");
+        let _ = shader.translated.set(Some(translated));
+        Arc::new(shader)
+    }
 }
 
 /// A translated shader and the console resources its code reads.
@@ -149,7 +158,10 @@ impl Shader {
 fn thread_cpu() -> (u64, u64) {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
-    let mut t = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 4];
+    let mut t = [FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    }; 4];
     let [created, exited, kernel, user] = &mut t;
     // SAFETY: four times of our own thread into our own variables.
     unsafe { GetThreadTimes(GetCurrentThread(), created, exited, kernel, user) };
@@ -170,7 +182,10 @@ fn thread_cpu_since(then: (u64, u64)) -> (u64, u64) {
 #[cfg(windows)]
 fn translate(container: &[u8]) -> (Result<Translated, String>, bool) {
     let (host, cached) = crate::shader_cache::host_shader(container);
-    (host.and_then(|host| with_resources(container, host)), cached)
+    (
+        host.and_then(|host| with_resources(container, host)),
+        cached,
+    )
 }
 
 #[cfg(windows)]
@@ -236,9 +251,9 @@ pub(crate) fn bound(this: This) {
     }
 }
 
-/// The host pipeline of a title pipeline; `None` if one of its shaders does
-/// not translate, the host refuses it, or it is still being made (its first
-/// use starts that, see [`make`]).
+/// The host pipeline of a title pipeline; `None` if it is skipped, one of its
+/// shaders does not translate, the host refuses it, or it is still being made
+/// (its first use starts that, see [`make`]).
 #[cfg(windows)]
 pub(crate) fn host_pipeline<'a>(this: This) -> Option<&'a host::HostPipeline> {
     if this.is_null() {
@@ -259,7 +274,7 @@ pub(crate) fn making() -> u64 {
 static DROPS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
 /// Shader hashes as printed in the pipeline diagnostics.
-#[cfg(all(windows, feature = "diagnostics"))]
+#[cfg(all(feature = "diagnostics", any(windows, test)))]
 fn parse_skip_hashes(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -304,24 +319,37 @@ pub(crate) fn live_skip(hash: &str, skip: bool) {
 /// The shaders skipped now.
 #[cfg(all(windows, feature = "diagnostics"))]
 pub(crate) fn live_skips() -> Vec<String> {
-    skip_hashes().read().unwrap_or_else(|e| e.into_inner()).clone()
+    skip_hashes()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[cfg(all(windows, feature = "diagnostics"))]
-fn skipped_shader(p: &Pipeline) -> Option<&str> {
-    let hashes = skip_hashes().read().unwrap_or_else(|e| e.into_inner());
+fn skipped_shader<'a>(shaders: &'a [Arc<Shader>], hashes: &[String]) -> Option<&'a str> {
     if hashes.is_empty() {
         return None;
     }
-    p.shaders
+    shaders
         .iter()
         .find(|shader| hashes.contains(&shader.hash))
         .map(|shader| shader.hash.as_str())
 }
 
+/// The skipped shader of `p` now: one skipped when it was made, or since
+/// (`crate::live`).
+#[cfg(all(windows, feature = "diagnostics"))]
+fn live_skipped(p: &Pipeline) -> Option<String> {
+    let hashes = skip_hashes().read().unwrap_or_else(|e| e.into_inner());
+    p.host
+        .skipped_shader
+        .clone()
+        .or_else(|| skipped_shader(&p.shaders, &hashes).map(str::to_owned))
+}
+
 #[cfg(all(windows, feature = "diagnostics"))]
 pub(crate) fn is_skipped(this: This) -> bool {
-    !this.is_null() && skipped_shader(pipeline(this)).is_some()
+    !this.is_null() && live_skipped(pipeline(this)).is_some()
 }
 
 /// The shaders of `this`, as host pipelines are named (diagnostics).
@@ -341,7 +369,7 @@ pub(crate) fn note_drop(this: This) {
         Some("no pipeline set".to_owned())
     } else {
         let p = pipeline(this);
-        skipped_shader(p)
+        live_skipped(p)
             .map(|hash| format!("skipped shader {hash}"))
             .or_else(|| make::missing(&p.host))
     };
@@ -354,7 +382,10 @@ pub(crate) fn note_drop(this: This) {
 #[cfg(all(windows, feature = "diagnostics"))]
 pub(crate) fn note_why(why: String) {
     let mut drops = DROPS.lock().unwrap_or_else(|e| e.into_inner());
-    *drops.get_or_insert_with(HashMap::new).entry(why).or_default() += 1;
+    *drops
+        .get_or_insert_with(HashMap::new)
+        .entry(why)
+        .or_default() += 1;
 }
 
 /// The drops counted since the last call, most first (diagnostics).
@@ -388,7 +419,12 @@ fn hand_out(
 ) -> HRESULT {
     tracing::trace!(?shaders, "pipeline state");
     #[cfg(windows)]
-    let host = Arc::new(make::Pending::new(shaders.clone(), graphics));
+    let host = Arc::new(make::Pending::new(
+        shaders.clone(),
+        graphics,
+        #[cfg(feature = "diagnostics")]
+        &skip_hashes().read().unwrap_or_else(|e| e.into_inner()),
+    ));
     #[cfg(windows)]
     make::early(&host);
     let pipeline = Box::new(Pipeline {
@@ -553,9 +589,16 @@ fn read_stream(
             break;
         }
         if let Some(stage) = stage {
-            // SAFETY: a shader subobject has its bytecode at +8.
-            let code = unsafe { &*stream.as_ptr().add(at + 8).cast::<Bytecode>() };
-            shaders.extend(shader(stage, code));
+            // SAFETY: a shader subobject has its bytecode at +8, which the
+            // slice does not promise to be aligned.
+            let code = unsafe {
+                stream
+                    .as_ptr()
+                    .add(at + 8)
+                    .cast::<Bytecode>()
+                    .read_unaligned()
+            };
+            shaders.extend(shader(stage, &code));
         }
         #[cfg(windows)]
         // SAFETY: a whole subobject of this kind lies at `at`.
@@ -590,6 +633,8 @@ pub(crate) mod host;
 mod library;
 #[cfg(windows)]
 mod make;
+#[cfg(all(test, windows, feature = "diagnostics"))]
+mod placed_uav_tests;
 
 /// Keeps compiled host pipelines, and the list of title pipelines to start
 /// early, in `dir` (a folder of the cache) across runs.
@@ -653,7 +698,11 @@ impl Prebuild {
 
     /// Its shaders and state as a diagnostics build logs them.
     pub fn describe(&self) -> String {
-        let state = self.graphics.as_ref().map(|g| g.describe()).unwrap_or_default();
+        let state = self
+            .graphics
+            .as_ref()
+            .map(|g| g.describe())
+            .unwrap_or_default();
         format!("{:?}\t{state}", self.shaders)
     }
 
@@ -678,10 +727,12 @@ impl Prebuild {
         library::save(false);
         match made {
             Some(_) => Ok(()),
-            None => Err(match self.shaders.iter().find(|s| s.translated().is_none()) {
-                Some(s) => format!("{} shader does not translate", s.stage),
-                None => "the host refuses it".into(),
-            }),
+            None => Err(
+                match self.shaders.iter().find(|s| s.translated().is_none()) {
+                    Some(s) => format!("{} shader does not translate", s.stage),
+                    None => "the host refuses it".into(),
+                },
+            ),
         }
     }
 }
@@ -708,7 +759,7 @@ pub fn wanted_early(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(windows, feature = "diagnostics"))]
+    #[cfg(feature = "diagnostics")]
     #[test]
     fn skip_hashes_accepts_full_hashes_only() {
         assert!(super::parse_skip_hashes(" , ").is_empty());
@@ -720,6 +771,27 @@ mod tests {
 
     use super::*;
     use crate::object::{S_OK, slot};
+
+    /// The slice a title's stream (or a pre-build's) is in need not be
+    /// 8-aligned: its bytecode is read as it lies.
+    #[test]
+    fn a_stream_of_any_alignment_is_read() {
+        let mut backing = [0u64; 5];
+        // SAFETY: the 40 bytes of `backing`, one off its (aligned) start.
+        let stream =
+            unsafe { std::slice::from_raw_parts_mut(backing.as_mut_ptr().cast::<u8>().add(1), 32) };
+        stream[..4].copy_from_slice(&1u32.to_le_bytes()); // vertex shader
+        stream[8..16].copy_from_slice(&0x1000usize.to_le_bytes());
+        stream[16..24].copy_from_slice(&7usize.to_le_bytes());
+        assert_ne!(stream.as_ptr() as usize % 8, 0);
+        let seen = std::cell::RefCell::new(Vec::new());
+        read_stream(stream, |stage, code| {
+            seen.borrow_mut()
+                .push((stage, code.code as usize, code.size));
+            None
+        });
+        assert_eq!(*seen.borrow(), [("vertex", 0x1000, 7)]);
+    }
 
     fn shaders(p: This) -> Vec<(&'static str, Vec<u8>)> {
         pipeline(p)
@@ -839,10 +911,16 @@ mod tests {
             element[8 + 4 * i..12 + 4 * i].copy_from_slice(&w.to_le_bytes());
         }
         let mut stream = vec![0u8; 0x2b0];
-        let put = |s: &mut Vec<u8>, at: usize, v: u64| {
-            s[at..at + 8].copy_from_slice(&v.to_le_bytes())
-        };
-        let kinds = [(0x10, 1), (0x28, 2), (0x40, 3), (0x58, 4), (0x70, 5), (0x88, 8)];
+        let put =
+            |s: &mut Vec<u8>, at: usize, v: u64| s[at..at + 8].copy_from_slice(&v.to_le_bytes());
+        let kinds = [
+            (0x10, 1),
+            (0x28, 2),
+            (0x40, 3),
+            (0x58, 4),
+            (0x70, 5),
+            (0x88, 8),
+        ];
         for (at, kind) in kinds.into_iter().chain([(0x210, 21), (0x250, 17)]) {
             put(&mut stream, at, kind);
         }
@@ -866,7 +944,10 @@ mod tests {
             stream: stream.as_ptr(),
         };
         let mut p = std::ptr::null();
-        assert_eq!(create_stream(std::ptr::null(), &desc, &PIPELINE_IIDS[0], &mut p), S_OK);
+        assert_eq!(
+            create_stream(std::ptr::null(), &desc, &PIPELINE_IIDS[0], &mut p),
+            S_OK
+        );
         // SAFETY: the stream points at live code and elements.
         let pre = unsafe { Prebuild::graphics(&stream) };
         let title = pipeline(p);

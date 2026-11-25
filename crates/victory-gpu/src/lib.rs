@@ -20,8 +20,6 @@
 mod bindless;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod capture;
-#[cfg(all(windows, feature = "diagnostics"))]
-mod live;
 pub mod console;
 #[cfg(all(windows, feature = "diagnostics"))]
 mod copystat;
@@ -40,6 +38,8 @@ mod host;
 #[cfg(windows)]
 mod indirect;
 pub mod list;
+#[cfg(all(windows, feature = "diagnostics"))]
+mod live;
 #[cfg(windows)]
 mod memory;
 pub mod object;

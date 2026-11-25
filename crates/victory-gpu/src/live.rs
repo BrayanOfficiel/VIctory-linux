@@ -47,13 +47,16 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
 
 fn file() -> Option<&'static PathBuf> {
     static FILE: OnceLock<Option<PathBuf>> = OnceLock::new();
-    FILE.get_or_init(|| std::env::var_os("VICTORY_LIVE").map(PathBuf::from)).as_ref()
+    FILE.get_or_init(|| std::env::var_os("VICTORY_LIVE").map(PathBuf::from))
+        .as_ref()
 }
 
 /// At the present of frame `frame`: runs the commands waiting in the file.
 pub(crate) fn poll(frame: u64) {
     let Some(path) = file() else { return };
-    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
     let _ = std::fs::remove_file(path);
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         match parse(line) {
@@ -65,7 +68,9 @@ pub(crate) fn poll(frame: u64) {
                 crate::pipeline::live_skip(&hash, false);
                 tracing::warn!(frame, hash, "live: skipped no more");
             }
-            Ok(Command::Skips) => tracing::warn!(frame, hashes = ?crate::pipeline::live_skips(), "live: skipped shaders"),
+            Ok(Command::Skips) => {
+                tracing::warn!(frame, hashes = ?crate::pipeline::live_skips(), "live: skipped shaders")
+            }
             Ok(Command::Capture) => {
                 crate::capture::capture_next(frame);
                 tracing::warn!(frame, "live: the next frame is captured");
@@ -82,11 +87,20 @@ mod tests {
 
     #[test]
     fn commands_are_read_from_their_lines() {
-        assert_eq!(parse("skip 7F05DDAB771799A9"), Ok(Command::Skip("7f05ddab771799a9".into())));
-        assert_eq!(parse("  unskip 7f05ddab771799a9 "), Ok(Command::Unskip("7f05ddab771799a9".into())));
+        assert_eq!(
+            parse("skip 7F05DDAB771799A9"),
+            Ok(Command::Skip("7f05ddab771799a9".into()))
+        );
+        assert_eq!(
+            parse("  unskip 7f05ddab771799a9 "),
+            Ok(Command::Unskip("7f05ddab771799a9".into()))
+        );
         assert_eq!(parse("skips"), Ok(Command::Skips));
         assert_eq!(parse("capture"), Ok(Command::Capture));
-        assert_eq!(parse("mark cell, FSR on"), Ok(Command::Mark("cell, FSR on".into())));
+        assert_eq!(
+            parse("mark cell, FSR on"),
+            Ok(Command::Mark("cell, FSR on".into()))
+        );
         assert!(parse("skip 1234").is_err());
         assert!(parse("skip zzzzzzzzzzzzzzzz").is_err());
         assert!(parse("explode").is_err());

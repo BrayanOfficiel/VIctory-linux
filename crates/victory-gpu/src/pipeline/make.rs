@@ -36,6 +36,8 @@ pub(crate) struct Pending {
     now: AtomicBool,
     taken: AtomicBool,
     made: OnceLock<Option<HostPipeline>>,
+    #[cfg(feature = "diagnostics")]
+    pub(super) skipped_shader: Option<String>,
     /// What identifies it across runs (shader containers and state), and
     /// whether a draw has used it yet.
     pub(crate) key: String,
@@ -49,13 +51,25 @@ unsafe impl Send for Pending {}
 unsafe impl Sync for Pending {}
 
 impl Pending {
-    pub(crate) fn new(shaders: Vec<Arc<Shader>>, graphics: Option<Box<GraphicsState>>) -> Pending {
+    pub(crate) fn new(
+        shaders: Vec<Arc<Shader>>,
+        graphics: Option<Box<GraphicsState>>,
+        #[cfg(feature = "diagnostics")] skip_hashes: &[String],
+    ) -> Pending {
         let key = key(&shaders, graphics.as_deref());
         #[cfg(feature = "diagnostics")]
         log("created", &key, || {
             let state = graphics.as_ref().map(|g| g.describe()).unwrap_or_default();
             format!("{shaders:?}\t{state}")
         });
+        #[cfg(feature = "diagnostics")]
+        let skipped_shader = super::skipped_shader(&shaders, skip_hashes).map(str::to_owned);
+        let made = OnceLock::new();
+        // Publish the completed result before the pipeline can be queued.
+        #[cfg(feature = "diagnostics")]
+        if skipped_shader.is_some() {
+            let _ = made.set(None);
+        }
         Pending {
             key,
             shaders,
@@ -63,7 +77,9 @@ impl Pending {
             queued: AtomicBool::new(false),
             now: AtomicBool::new(false),
             taken: AtomicBool::new(false),
-            made: OnceLock::new(),
+            made,
+            #[cfg(feature = "diagnostics")]
+            skipped_shader,
             used: AtomicBool::new(false),
         }
     }
@@ -98,7 +114,12 @@ pub(crate) fn key(shaders: &[Arc<Shader>], graphics: Option<&GraphicsState>) -> 
         key.update(s.stage.as_bytes());
         key.update(s.hash.as_bytes());
     }
-    key.update(graphics.map(|g| g.describe()).unwrap_or_default().as_bytes());
+    key.update(
+        graphics
+            .map(|g| g.describe())
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     key.finalize().to_hex()[..32].to_owned()
 }
 
@@ -130,7 +151,9 @@ pub(crate) fn missing(p: &Pending) -> Option<String> {
 #[cfg(feature = "diagnostics")]
 pub(crate) fn log_built(key: &str) {
     if let Some((name, loaded)) = super::library::LAST.take() {
-        log("built", key, || format!("{name}\t{}", if loaded { "loaded" } else { "made" }));
+        log("built", key, || {
+            format!("{name}\t{}", if loaded { "loaded" } else { "made" })
+        });
     }
 }
 
@@ -150,9 +173,13 @@ fn log(what: &str, key: &str, rest: impl FnOnce() -> String) {
     };
     let mut log = LOG.lock().unwrap_or_else(|e| e.into_inner());
     if log.is_none() {
-        *log = std::fs::File::create(path).ok().map(|f| (f, HashSet::new()));
+        *log = std::fs::File::create(path)
+            .ok()
+            .map(|f| (f, HashSet::new()));
     }
-    let Some((file, seen)) = log.as_mut() else { return };
+    let Some((file, seen)) = log.as_mut() else {
+        return;
+    };
     if seen.insert(format!("{what} {key}")) {
         let _ = writeln!(file, "{what}\t{key}\t{}", rest());
     }
@@ -201,7 +228,10 @@ fn start(p: &Arc<Pending>, now: bool) {
 fn enqueue(p: &Pending, now: bool) -> Option<bool> {
     let first = !p.queued.swap(true, Ordering::Relaxed);
     if first {
-        PEAK.fetch_max(WAITING.fetch_add(1, Ordering::Relaxed) + 1, Ordering::Relaxed);
+        PEAK.fetch_max(
+            WAITING.fetch_add(1, Ordering::Relaxed) + 1,
+            Ordering::Relaxed,
+        );
     }
     let ahead = now && !p.now.swap(true, Ordering::Relaxed);
     (first || ahead && !p.taken.load(Ordering::Relaxed)).then_some(ahead)
@@ -211,7 +241,7 @@ fn enqueue(p: &Pending, now: bool) -> Option<bool> {
 /// run drew with it (during loading, so the world's first frames find it).
 pub(crate) fn early(p: &Arc<Pending>) {
     super::library::note_created(&p.key);
-    if !p.shaders.is_empty() && super::library::wanted_early(&p.key) {
+    if p.made.get().is_none() && !p.shaders.is_empty() && super::library::wanted_early(&p.key) {
         super::library::EARLY.fetch_add(1, Ordering::Relaxed);
         start(p, false);
     }
@@ -233,15 +263,20 @@ fn wait(p: &Pending, frame: u64) {
         if rest.is_zero() {
             break;
         }
-        held = done.wait_timeout(held, rest).unwrap_or_else(|e| e.into_inner()).0;
+        held = done
+            .wait_timeout(held, rest)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
     WAITED_US.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
 /// Pipelines for the workers: those draws wait for, then those started
 /// early.
-static QUEUES: (Mutex<[VecDeque<Arc<Pending>>; 2]>, Condvar) =
-    (Mutex::new([VecDeque::new(), VecDeque::new()]), Condvar::new());
+static QUEUES: (Mutex<[VecDeque<Arc<Pending>>; 2]>, Condvar) = (
+    Mutex::new([VecDeque::new(), VecDeque::new()]),
+    Condvar::new(),
+);
 
 /// Hands `p` to the workers (half the logical processors, 2 to 8), started
 /// on first use.
@@ -340,16 +375,31 @@ mod tests {
     /// once, unless a worker has taken it.
     #[test]
     fn draws_go_ahead_of_early_starts() {
-        let p = Pending::new(Vec::new(), None);
+        let p = Pending::new(
+            Vec::new(),
+            None,
+            #[cfg(feature = "diagnostics")]
+            &[],
+        );
         assert_eq!(enqueue(&p, false), Some(false));
         assert_eq!(enqueue(&p, false), None);
         assert_eq!(enqueue(&p, true), Some(true));
         assert_eq!(enqueue(&p, true), None);
-        let q = Pending::new(Vec::new(), None);
+        let q = Pending::new(
+            Vec::new(),
+            None,
+            #[cfg(feature = "diagnostics")]
+            &[],
+        );
         assert_eq!(enqueue(&q, false), Some(false));
         q.taken.store(true, Ordering::Relaxed);
         assert_eq!(enqueue(&q, true), None);
-        let r = Pending::new(Vec::new(), None);
+        let r = Pending::new(
+            Vec::new(),
+            None,
+            #[cfg(feature = "diagnostics")]
+            &[],
+        );
         assert_eq!(enqueue(&r, true), Some(true));
         assert_eq!(enqueue(&r, false), None);
         // Counted as waiting by `enqueue`, never handed to a worker.
@@ -360,7 +410,12 @@ mod tests {
     /// worker's answer (here: no host pipeline for no shaders).
     #[test]
     fn first_use_is_made_by_a_worker() {
-        let p = Arc::new(Pending::new(Vec::new(), None));
+        let p = Arc::new(Pending::new(
+            Vec::new(),
+            None,
+            #[cfg(feature = "diagnostics")]
+            &[],
+        ));
         assert!(ready(&p).is_none());
         assert!(p.queued.load(Ordering::Relaxed));
         let started = Instant::now();
@@ -368,5 +423,32 @@ mod tests {
             std::thread::yield_now();
         }
         assert!(matches!(p.made.get(), Some(None)));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn skipped_pipeline_stays_off_the_queue() {
+        let hashes = crate::pipeline::parse_skip_hashes(" 0123456789ABCDEF ");
+        let shader = Arc::new(Shader {
+            stage: "compute",
+            hash: "0123456789abcdef".into(),
+            container: Vec::new(),
+            translated: OnceLock::new(),
+        });
+        let cold = Arc::new(Pending::new(vec![shader.clone()], None, &hashes));
+        let warm = Arc::new(Pending::new(vec![shader.clone()], None, &hashes));
+        assert!(ready(&cold).is_none());
+        crate::pipeline::library::note_used(&warm.key);
+        early(&warm);
+        assert_eq!(
+            (
+                cold.queued.load(Ordering::Relaxed),
+                warm.queued.load(Ordering::Relaxed)
+            ),
+            (false, false)
+        );
+        assert!(matches!(cold.made.get(), Some(None)));
+        assert!(matches!(warm.made.get(), Some(None)));
+        assert!(shader.translated.get().is_none());
     }
 }

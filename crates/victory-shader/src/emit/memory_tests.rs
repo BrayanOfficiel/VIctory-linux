@@ -175,8 +175,15 @@ fn program() -> HostShader {
     let p = ir::build(&native.code, native.wave64, native.vgprs).expect("ir::build");
     let st = structure::structure(&p).expect("structure");
     let res = resource::track(&p, &native.layout, native.stage, Some(&st)).expect("track");
-    let memory = res.scalar.iter().filter(|s| s.1.param == resource::MEMORY).count();
-    assert_eq!(memory, 11, "every access through the pointer is title memory");
+    let memory = res
+        .scalar
+        .iter()
+        .filter(|s| s.1.param == resource::MEMORY)
+        .count();
+    assert_eq!(
+        memory, 11,
+        "every access through the pointer is title memory"
+    );
     let io = io::raise(&p, &native).expect("io::raise");
     let l = lower::lower(&lower::Parts {
         native: &native,
@@ -192,7 +199,10 @@ fn program() -> HostShader {
     })
     .expect("lower");
     assert!(l.memory && l.memory_writes && l.view_addresses);
-    assert!(l.root_uavs.is_empty(), "the root UAV is read as title memory");
+    assert!(
+        l.root_uavs.is_empty(),
+        "the root UAV is read as title memory"
+    );
     let shader = HostShader {
         stage: HwStage::Cs,
         dxil: l.dxil,
@@ -210,7 +220,8 @@ fn program() -> HostShader {
         view_marks: l.view_marks,
     };
     if let Ok(mut v) = validator::Validator::load(validator::Validator::default_path().as_deref()) {
-        v.validate(&mut shader.dxil.clone()).expect("DXIL validation failed");
+        v.validate(&mut shader.dxil.clone())
+            .expect("DXIL validation failed");
     }
     shader
 }
@@ -242,7 +253,12 @@ fn title_memory_is_read_and_written_at_computed_addresses() {
     memory[3] = (pointer >> 32) as u32;
     // The next page (no copy) and another 256 MiB region (no block).
     let (next, far) = (TITLE + 0x1_0010, 0x55_0000_0040u64);
-    memory[4..8].copy_from_slice(&[next as u32, (next >> 32) as u32, far as u32, (far >> 32) as u32]);
+    memory[4..8].copy_from_slice(&[
+        next as u32,
+        (next >> 32) as u32,
+        far as u32,
+        (far >> 32) as u32,
+    ]);
     memory[0x40] = 0x2222_2222;
     // The root UAV's address, and what it loads there.
     let root_uav = TITLE + 0x200;
@@ -282,9 +298,21 @@ fn title_memory_is_read_and_written_at_computed_addresses() {
                     &Dispatch {
                         roots: vec![
                             (0, Root::Constants(ud)),
-                            (1, Root::View { srv: true, data: page_table(1, 3) }),
+                            (
+                                1,
+                                Root::View {
+                                    srv: true,
+                                    data: page_table(1, 3),
+                                },
+                            ),
                             (2, Root::Uav(2 * 4096 / 32)),
-                            (3, Root::View { srv: true, data: view_addresses.clone() }),
+                            (
+                                3,
+                                Root::View {
+                                    srv: true,
+                                    data: view_addresses.clone(),
+                                },
+                            ),
                         ],
                         views: &[
                             View::RawUav(9),
@@ -300,11 +328,25 @@ fn title_memory_is_read_and_written_at_computed_addresses() {
                 .unwrap_or_else(|e| panic!("{label}: {e}"));
             assert_eq!(
                 out[0],
-                [0x1111_1111, 0x2222_2222, 0x2222_2222, 0, 0, 0x3333_3333, image[0], image[1], image[2]],
+                [
+                    0x1111_1111,
+                    0x2222_2222,
+                    0x2222_2222,
+                    0,
+                    0,
+                    0x3333_3333,
+                    image[0],
+                    image[1],
+                    image[2]
+                ],
                 "{label}: reads"
             );
             assert_eq!(out[1][0x40 / 4], value, "{label}: the store");
-            assert_eq!(out[1][(0x200 + 0x20) / 4], value, "{label}: the root UAV store");
+            assert_eq!(
+                out[1][(0x200 + 0x20) / 4],
+                value,
+                "{label}: the root UAV store"
+            );
             let floats = [f32::from_bits(out[1][0x20]), f32::from_bits(out[1][0x21])];
             let want = [operand.min(1.0), operand.max(-1.0)];
             assert_eq!(floats, want, "{label}: float min and max");
@@ -314,7 +356,11 @@ fn title_memory_is_read_and_written_at_computed_addresses() {
             let marked: Vec<usize> = (0..out[2].len() * 32)
                 .filter(|&b| out[2][b / 32] >> (b % 32) & 1 != 0)
                 .collect();
-            assert_eq!(marked, [(far >> 28) as usize, entry, entry + 1], "{label}: pages");
+            assert_eq!(
+                marked,
+                [(far >> 28) as usize, entry, entry + 1],
+                "{label}: pages"
+            );
         }
         ran += 1;
     }
@@ -334,7 +380,10 @@ fn root_views_read_their_copy_and_zeros_past_it() {
     }
     /// MUBUF `op` (offen) of `vdata` at `vaddr` through `s[srsrc:srsrc+3]`.
     const fn mubuf(op: u32, vdata: u8, vaddr: u8, srsrc: u8) -> [u32; 2] {
-        [0x38 << 26 | op << 18 | 1 << 12, 0x80 << 24 | (srsrc as u32 >> 2) << 16 | (vdata as u32) << 8 | vaddr as u32]
+        [
+            0x38 << 26 | op << 18 | 1 << 12,
+            0x80 << 24 | (srsrc as u32 >> 2) << 16 | (vdata as u32) << 8 | vaddr as u32,
+        ]
     }
     const V_LSHLREV_B32: u32 = 0x1A;
     let mut w = vec![
@@ -420,14 +469,20 @@ fn root_views_read_their_copy_and_zeros_past_it() {
         view_marks: false,
     })
     .expect("lower");
-    assert!(l.root_srvs.is_empty() && !l.memory, "no root descriptor, no title memory");
+    assert!(
+        l.root_srvs.is_empty() && !l.memory,
+        "no root descriptor, no title memory"
+    );
     let marks: Vec<(u32, u32)> = l
         .user_data
         .iter()
         .filter(|u| u.root == RootType::Descriptor)
         .map(|u| (u.index, u.dword))
         .collect();
-    assert_eq!(marks, [(6, super::ROOT_SRV_VIEW), (7, super::ROOT_VIEW_OFFSET)]);
+    assert_eq!(
+        marks,
+        [(6, super::ROOT_SRV_VIEW), (7, super::ROOT_VIEW_OFFSET)]
+    );
     let shader = HostShader {
         stage: HwStage::Cs,
         dxil: l.dxil,
@@ -445,7 +500,8 @@ fn root_views_read_their_copy_and_zeros_past_it() {
         view_marks: l.view_marks,
     };
     if let Ok(mut v) = validator::Validator::load(validator::Validator::default_path().as_deref()) {
-        v.validate(&mut shader.dxil.clone()).expect("DXIL validation failed");
+        v.validate(&mut shader.dxil.clone())
+            .expect("DXIL validation failed");
     }
     let _one = super::valu_tests::ONE_AT_A_TIME
         .lock()
@@ -480,7 +536,9 @@ fn root_views_read_their_copy_and_zeros_past_it() {
                 },
             )
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        let want: Vec<u32> = (0..32).map(|lane| if lane < 16 { 0x1000 + 4 + 16 * lane } else { 0 }).collect();
+        let want: Vec<u32> = (0..32)
+            .map(|lane| if lane < 16 { 0x1000 + 4 + 16 * lane } else { 0 })
+            .collect();
         assert_eq!(out[0], want, "{label}");
         ran += 1;
     }
@@ -537,7 +595,10 @@ fn writes_through_views_mark_their_pages() {
         stage: HwStage::Cs,
         wave64: false,
         vgprs: 8,
-        layout: vec![param(RootType::Constants, 0, 4, 0), param(RootType::Table, 4, 1, 1)],
+        layout: vec![
+            param(RootType::Constants, 0, 4, 0),
+            param(RootType::Table, 4, 1, 1),
+        ],
         used: (0..3).map(uav).collect(),
         io: StageIo::Cs(ComputeIo {
             rsrc2: 5 << 1,
@@ -580,7 +641,8 @@ fn writes_through_views_mark_their_pages() {
         view_marks: l.view_marks,
     };
     if let Ok(mut v) = validator::Validator::load(validator::Validator::default_path().as_deref()) {
-        v.validate(&mut shader.dxil.clone()).expect("DXIL validation failed");
+        v.validate(&mut shader.dxil.clone())
+            .expect("DXIL validation failed");
     }
     let _one = super::valu_tests::ONE_AT_A_TIME
         .lock()
@@ -596,7 +658,11 @@ fn writes_through_views_mark_their_pages() {
         let (root, pso) = host.compute_pipeline(&shader).expect("pipeline");
         let mut ud = vec![0u32; shader.user_data_dwords() as usize];
         for u in &shader.user_data {
-            ud[u.index as usize] = if u.root == RootType::Constants { value } else { 0 };
+            ud[u.index as usize] = if u.root == RootType::Constants {
+                value
+            } else {
+                0
+            };
         }
         let out = host
             .dispatch(
@@ -605,7 +671,13 @@ fn writes_through_views_mark_their_pages() {
                 &Dispatch {
                     roots: vec![
                         (0, Root::Constants(ud)),
-                        (1, Root::View { srv: true, data: marks.clone() }),
+                        (
+                            1,
+                            Root::View {
+                                srv: true,
+                                data: marks.clone(),
+                            },
+                        ),
                         (2, Root::Uav(8)),
                     ],
                     views: &[View::RawUav(8), View::RawUav(8), View::RawUav(8)],
@@ -614,7 +686,11 @@ fn writes_through_views_mark_their_pages() {
                 },
             )
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        assert_eq!(out[0], [value, 0, 0, value, value, value, value, 0], "{label}: view 0");
+        assert_eq!(
+            out[0],
+            [value, 0, 0, value, value, value, value, 0],
+            "{label}: view 0"
+        );
         assert_eq!(out[1][1], value, "{label}: view 1");
         assert_eq!(out[2][2], value, "{label}: the atomic");
         let marked: Vec<usize> = (0..out[3].len() * 32)
@@ -713,7 +789,8 @@ fn heap_direct_texture_reads_mark_their_heap_index() {
         view_marks: l.view_marks,
     };
     if let Ok(mut v) = validator::Validator::load(validator::Validator::default_path().as_deref()) {
-        v.validate(&mut shader.dxil.clone()).expect("DXIL validation failed");
+        v.validate(&mut shader.dxil.clone())
+            .expect("DXIL validation failed");
     }
     let _one = super::valu_tests::ONE_AT_A_TIME
         .lock()
@@ -736,7 +813,13 @@ fn heap_direct_texture_reads_mark_their_heap_index() {
                 &Dispatch {
                     roots: vec![
                         (0, Root::Constants(ud)),
-                        (1, Root::View { srv: true, data: vec![super::VIEW_MARK_NONE; 4] }),
+                        (
+                            1,
+                            Root::View {
+                                srv: true,
+                                data: vec![super::VIEW_MARK_NONE; 4],
+                            },
+                        ),
                         (2, Root::Uav(words)),
                     ],
                     views: &[View::Texture(1, 1, &texel), View::Texture(1, 1, &texel)],
@@ -746,8 +829,186 @@ fn heap_direct_texture_reads_mark_their_heap_index() {
             )
             .unwrap_or_else(|e| panic!("{label}: {e}"));
         let bits = &out[0];
-        let marked: Vec<usize> = (0..bits.len() * 32).filter(|&b| bits[b / 32] >> (b % 32) & 1 != 0).collect();
-        assert_eq!(marked, [super::VIEW_READS as usize + 1], "{label}: the slot read");
+        let marked: Vec<usize> = (0..bits.len() * 32)
+            .filter(|&b| bits[b / 32] >> (b % 32) & 1 != 0)
+            .collect();
+        assert_eq!(
+            marked,
+            [super::VIEW_READS as usize + 1],
+            "{label}: the slot read"
+        );
+        ran += 1;
+    }
+    assert!(ran > 0, "neither hardware nor WARP SM 6.6 device available");
+}
+
+/// Multi-byte writes into title memory that cross a 256 MiB region boundary
+/// or a 4 GiB boundary look up their last byte's region and page in the
+/// page table rather than offsetting the first page's entry or adding the
+/// low dword alone (`Lower::memory`).
+#[test]
+fn straddling_writes_across_256mib_and_4gib_boundaries_mark_exact_pages() {
+    let mut w = vec![v_mov_b32(0, ZERO)];
+    for k in 0..4u8 {
+        // Inline constants 129..=132 are 1..=4.
+        w.push(v_mov_b32(1 + k, 129 + u16::from(k)));
+    }
+    w.extend(global(30, 0, 0, 1, 0, 0)); // global_store_dwordx4 v0, v[1:4], s[0:1]
+    w.push(S_ENDPGM);
+    let native = NativeProgram {
+        stage: HwStage::Cs,
+        wave64: false,
+        vgprs: 5,
+        layout: vec![RootParam {
+            root: RootType::Constants,
+            table_offset_dwords: 0,
+            sgprs: 2,
+            base_register: 0,
+            user_data: 0,
+            slot: 0,
+        }],
+        used: Vec::new(),
+        io: StageIo::Cs(ComputeIo {
+            rsrc2: 2 << 1,
+            threads: [1, 1, 1],
+        }),
+        code: w.iter().flat_map(|w| w.to_le_bytes()).collect(),
+    };
+    let p = ir::build(&native.code, native.wave64, native.vgprs).expect("ir::build");
+    let st = structure::structure(&p).expect("structure");
+    let res = resource::track(&p, &native.layout, native.stage, Some(&st)).expect("track");
+    let io = io::raise(&p, &native).expect("io::raise");
+    let l = lower::lower(&lower::Parts {
+        native: &native,
+        p: &p,
+        st: &st,
+        io: &io,
+        res: &res,
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        prims: Vec::new(),
+        mesh_stride: 0,
+        view_marks: false,
+    })
+    .expect("lower");
+    assert!(l.memory && l.memory_writes);
+    let shader = HostShader {
+        stage: HwStage::Cs,
+        dxil: l.dxil,
+        user_data: l.user_data,
+        samplers: l.samplers,
+        static_samplers: Vec::new(),
+        root_cbvs: l.root_cbvs,
+        root_srvs: l.root_srvs,
+        root_uavs: l.root_uavs,
+        memory: l.memory,
+        memory_writes: l.memory_writes,
+        view_addresses: l.view_addresses,
+        heap: l.heap,
+        heap_writes: l.heap_writes,
+        view_marks: l.view_marks,
+    };
+    if let Ok(mut v) = validator::Validator::load(validator::Validator::default_path().as_deref()) {
+        v.validate(&mut shader.dxil.clone())
+            .expect("DXIL validation failed");
+    }
+
+    // 513 blocks (block 0 null + 512 capacity blocks), 4096 entries each,
+    // View::Memory at heap slot 0 (UAV at 1) and View::NullPair at slot 2.
+    const BLOCKS: usize = 513;
+    const ENTRIES: usize = 4096;
+    let mut table = vec![0u32; ENTRIES];
+    for _ in 0..BLOCKS * ENTRIES {
+        table.extend([2, 0]);
+    }
+    let set_entry = |table: &mut Vec<u32>, block: usize, page: usize, start_lo: u32| {
+        let at = ENTRIES + 2 * (block * ENTRIES + page);
+        table[at..at + 2].copy_from_slice(&[0, start_lo]);
+    };
+    // 4 GiB boundary: 0x1_FFFF_0000 (l1 0x1F -> block 2) -> 0x2_0000_0000 (l1 0x20 -> block 1).
+    table[0x1F] = 2;
+    table[0x20] = 1;
+    set_entry(&mut table, 2, 0xFFF, 0xFFFF_0000);
+    set_entry(&mut table, 1, 0x000, 0xFFFF_0000);
+    // 256 MiB / capacity edge: 0x1_0FFF_0000 (l1 0x10 -> block 512) -> 0x1_1000_0000 (l1 0x11 -> block 0, unmapped).
+    table[0x10] = 512;
+    set_entry(&mut table, 512, 0xFFF, 0x0FFF_0000);
+
+    // 128 KiB copy spanning two 64 KiB pages; the store writes at +0xFFF8..+0x10008.
+    let memory = vec![0u32; 32 * 1024];
+    let bitmap_dwords = BLOCKS * ENTRIES / 32;
+    let _one = super::valu_tests::ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut ran = 0;
+    for (label, warp) in [("hardware", false), ("warp", true)] {
+        let Ok(host) = Host::new(warp) else {
+            eprintln!("no SM 6.6 {label} device; skipped");
+            continue;
+        };
+        let (root, pso) = host.compute_pipeline(&shader).expect("pipeline");
+        let cases: [(&str, u64, Vec<usize>); 3] = [
+            (
+                "4 GiB boundary",
+                0x1_FFFF_FFF8,
+                vec![4096, 2 * ENTRIES + 0xFFF],
+            ),
+            (
+                "256 MiB boundary into unmapped region at block capacity",
+                0x1_0FFF_FFF8,
+                vec![0x11, 512 * ENTRIES + 0xFFF],
+            ),
+            (
+                "same-page write inside 0x1_FFFF_0000",
+                0x1_FFFF_FF00,
+                vec![2 * ENTRIES + 0xFFF],
+            ),
+        ];
+        for (case, addr, want_bits) in cases {
+            let mut ud = vec![0u32; shader.user_data_dwords() as usize];
+            for u in &shader.user_data {
+                if u.root == RootType::Constants {
+                    ud[u.index as usize] = (addr >> (32 * u.dword)) as u32;
+                }
+            }
+            let out = host
+                .dispatch(
+                    &root,
+                    &pso,
+                    &Dispatch {
+                        roots: vec![
+                            (0, Root::Constants(ud)),
+                            (
+                                1,
+                                Root::View {
+                                    srv: true,
+                                    data: table.clone(),
+                                },
+                            ),
+                            (2, Root::Uav(bitmap_dwords as u32)),
+                        ],
+                        views: &[
+                            View::Memory(&memory),
+                            View::Pair,
+                            View::NullPair,
+                            View::Pair,
+                        ],
+                        samplers: &[],
+                        groups: [1, 1, 1],
+                    },
+                )
+                .unwrap_or_else(|e| panic!("{label} ({case}): {e}"));
+            let off = ((addr as u32) & 0xFFFF) as usize / 4;
+            assert_eq!(
+                &out[0][off..off + 4],
+                &[1, 2, 3, 4],
+                "{label} ({case}): store data"
+            );
+            let marked: Vec<usize> = (0..out[1].len() * 32)
+                .filter(|&b| out[1][b / 32] >> (b % 32) & 1 != 0)
+                .collect();
+            assert_eq!(marked, want_bits, "{label} ({case}): dirty bits");
+        }
         ran += 1;
     }
     assert!(ran > 0, "neither hardware nor WARP SM 6.6 device available");

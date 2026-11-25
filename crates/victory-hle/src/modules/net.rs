@@ -320,10 +320,20 @@ pub extern "system" fn WSAConnectByList(
             return 0;
         }
     }
-    type ConnectByList = extern "system" fn(Socket, *const u8, *mut u32, *mut c_void, *mut u32, *mut c_void, *const c_void, *mut c_void) -> i32;
+    type ConnectByList = extern "system" fn(
+        Socket,
+        *const u8,
+        *mut u32,
+        *mut c_void,
+        *mut u32,
+        *mut c_void,
+        *const c_void,
+        *mut c_void,
+    ) -> i32;
     static ADDRESS: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     // Wine's ws2_32 has no WSAConnectByList: fail the call as unsupported.
-    let Some(address) = *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "WSAConnectByList"))
+    let Some(address) =
+        *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "WSAConnectByList"))
     else {
         once("the host lacks ws2_32!WSAConnectByList", String::new());
         const WSAEOPNOTSUPP: i32 = 10045;
@@ -332,7 +342,9 @@ pub extern "system" fn WSAConnectByList(
     };
     // SAFETY: the host exports this function with this signature.
     let connect = unsafe { std::mem::transmute::<usize, ConnectByList>(address) };
-    connect(s, list, local_len, local, remote_len, remote, timeout, reserved)
+    connect(
+        s, list, local_len, local, remote_len, remote, timeout, reserved,
+    )
 }
 
 pub extern "system" fn WSAJoinLeaf(
@@ -598,17 +610,34 @@ pub extern "system" fn GetAddrInfoExA(
     if !resolvable(narrow(name)) {
         return blocked_lookup(result);
     }
-    type Resolve = extern "system" fn(*const c_char, *const c_char, u32, *const c_void, *const c_void, *mut *mut c_void, *const c_void, *mut c_void, *const c_void, *mut Handle) -> i32;
+    type Resolve = extern "system" fn(
+        *const c_char,
+        *const c_char,
+        u32,
+        *const c_void,
+        *const c_void,
+        *mut *mut c_void,
+        *const c_void,
+        *mut c_void,
+        *const c_void,
+        *mut Handle,
+    ) -> i32;
     static ADDRESS: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     // Wine's ws2_32 has no GetAddrInfoExA: the name is not found.
-    let Some(address) = *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "GetAddrInfoExA"))
+    let Some(address) =
+        *ADDRESS.get_or_init(|| crate::host::function("ws2_32.dll", "GetAddrInfoExA"))
     else {
-        once("the host lacks ws2_32!GetAddrInfoExA", narrow(name).unwrap_or_default());
+        once(
+            "the host lacks ws2_32!GetAddrInfoExA",
+            narrow(name).unwrap_or_default(),
+        );
         return WSAHOST_NOT_FOUND;
     };
     // SAFETY: the host exports this function with this signature.
     let resolve = unsafe { std::mem::transmute::<usize, Resolve>(address) };
-    resolve(name, service, namespace, provider, hints, result, timeout, overlapped, completion, handle)
+    resolve(
+        name, service, namespace, provider, hints, result, timeout, overlapped, completion, handle,
+    )
 }
 
 pub extern "system" fn GetAddrInfoExW(
@@ -1134,7 +1163,9 @@ mod tests {
                 "ws2_32.dll"
             };
             let present = crate::host::function(dll, e.name).is_some();
-            if !present && (NEWER_WINDOWS_ONLY.contains(&e.name) || MISSING_ON_WINE.contains(&e.name)) {
+            if !present
+                && (NEWER_WINDOWS_ONLY.contains(&e.name) || MISSING_ON_WINE.contains(&e.name))
+            {
                 continue;
             }
             assert!(present, "{dll} lacks {}", e.name);
