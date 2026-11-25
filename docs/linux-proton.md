@@ -53,7 +53,8 @@ scripts/proton-run.sh run /path/to/game/<the title's exe> --execute
 off in that prefix: a crash prints its backtrace in the terminal instead.
 
 With an Xbox controller connected, the keyboard is not a pad (as on
-Windows), so `VICTORY_KEYS` presses do not reach the title either.
+Windows). `VICTORY_KEYS` presses still reach the title, on the first
+connected pad.
 
 VIctory reads XInput pads. Wine shows a PlayStation pad (a DualSense) as a
 raw HID device, which no XInput slot answers, so both scripts set Wine's
