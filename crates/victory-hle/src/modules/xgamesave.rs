@@ -1124,7 +1124,12 @@ mod tests {
         for i in 0..1023 {
             std::fs::hard_link(&old_b, links.path().join(i.to_string())).expect(NTFS);
         }
-        let full = std::fs::hard_link(&old_b, links.path().join("full")).expect_err(NTFS);
+        // Under Wine the temp folder is a Linux file system, which takes
+        // far more links: the limit cannot be reached there.
+        let Err(full) = std::fs::hard_link(&old_b, links.path().join("full")) else {
+            eprintln!("the temp folder takes more than 1024 links to a file (not NTFS): skipped");
+            return;
+        };
         assert_eq!(full.kind(), std::io::ErrorKind::TooManyLinks, "{NTFS}");
 
         assert_eq!(update(root, "two", &[("a", Some("new a"))]), S_OK);
