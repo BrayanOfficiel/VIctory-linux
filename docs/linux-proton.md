@@ -50,8 +50,38 @@ first time (in `CARGO_TARGET_DIR` when set), turns the title's watchdog off
 (`VICTORY_NO_WATCHDOG=1` unless set otherwise, see below) and runs the title
 with `scripts/proton-run.sh`.
 
-`run.sh` runs the title in its Series S mode unless `--console` is given:
-the title then renders at 1280×720 and upscales with AMD FidelityFX. The
+### Builds by card
+
+`run.sh` picks the VIctory build from the graphics card, unless
+`VICTORY_BUILD` names one:
+
+| Card | Build (`VICTORY_BUILD`) | Source |
+|---|---|---|
+| AMD | `klbf-lab` | PastiiJay/klbf-lab, first on AMD in the community's rankings |
+| NVIDIA | `victory-fork` | fxceless/victory-fork, the reference build for NVIDIA |
+| Other | `victory` | this checkout |
+
+`scripts/base.sh` fetches the first two at a fixed commit into
+`~/.cache/victory/bases`, applies the fixes for Proton in
+`scripts/bases/<name>` and builds them. Both compile their own HLSL with
+methods Wine's compiler lacks, so they need Microsoft's `d3dcompiler_47.dll`:
+copy it from a Windows install's `System32` to
+`~/.local/share/victory/d3dcompiler_47.dll`, or set `D3DCOMPILER_47` to a
+copy of it. `run.sh` gives each build its own settings (klbf-lab's for AMD,
+with late waits off as RADV needs), keeping any value already set.
+
+Measured in the prologue's cell on an RX 6950 XT, Series S mode, last minute
+of a run:
+
+| Build | Frame | Picture at night |
+|---|---|---|
+| `klbf-lab` | 145 ms (6.9 fps) | dark, with magenta patches |
+| `victory` | 260 ms (3.9 fps) | right |
+
+With the `victory` and `klbf-lab` builds, `run.sh` runs the title in its
+Series S mode unless `--console` is given: the title then renders at
+1280×720 and upscales with AMD FidelityFX (`victory-fork` has no such mode
+on the host and stays in Series X mode). The
 console's upscaler draws a white picture under Proton, so `run.sh`
 downloads the PC one from AMD's FidelityFX SDK 2.4.0 (MIT licence, two DLLs
 in `~/.local/share/victory/fidelityfx`) and points `VICTORY_FIDELITYFX_DIR`
@@ -102,6 +132,9 @@ pixel shaders in waves of 64 lanes on RDNA 2, while the title's programs
 expect waves of 32. Its geometry then loses its triangles, so the world shows
 only its sky, and faces lose details. Both scripts add `gewave32,pswave32` to
 `RADV_PERFTEST`, keeping any value already set. Other drivers ignore it.
+`VICTORY_RADV_WAVE32=0` leaves RADV's waves alone: `run.sh` sets it for
+klbf-lab, which splits its own ballots for waves of 64 and draws wrong in
+waves of 32.
 
 ### A faster Wine server
 

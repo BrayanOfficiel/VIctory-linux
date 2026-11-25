@@ -15,6 +15,9 @@ Requirements:
 - Proton Experimental, installed from Steam (Library, then Tools).
 - A Vulkan driver with mesh shaders. RADV on RDNA 2 or later has them.
 - `rustup` and [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin).
+- On AMD and NVIDIA cards, Microsoft's `d3dcompiler_47.dll`, copied from a
+  Windows install's `System32` to `~/.local/share/victory/d3dcompiler_47.dll`
+  (the builds `run.sh` picks for them need it, see below).
 - A copy of the game you own. This repository holds no game files.
 
 ```sh
@@ -25,7 +28,10 @@ scripts/proton-viewtree.sh   # once: a faster Wine server (docs/linux-proton.md)
 ```
 
 `run.sh` takes the folder holding the title's executable, or the executable
-itself. The first run builds VIctory (cargo-xwin then downloads the MSVC
+itself. It picks the VIctory build from the graphics card: klbf-lab
+(PastiiJay) on AMD, fxceless's victory-fork on NVIDIA, this checkout's
+elsewhere, or the one `VICTORY_BUILD` names (`victory`, `klbf-lab`,
+`victory-fork`). The first run builds it (cargo-xwin then downloads the MSVC
 runtime and the Windows SDK, and accepts their licence). Wine runs in a
 prefix of its own, `~/.local/share/victory/proton`, made on first use.
 
@@ -36,14 +42,16 @@ Experimental `experimental-11.0-20261112`.
 
 - The title boots, runs its menus at its own 30 frames a second and loads
   the opening scene.
-- In the prologue's cell, a frame takes 220 to 270 ms (about 4 frames a
-  second) on an RX 6950 XT, with the Wine server `scripts/proton-viewtree.sh`
-  builds and the Series S mode `run.sh` starts. The opening cutscene, up to
-  13,000 draws a frame, runs at about 1 frame a second. With Steam's Wine
-  server, frames take about five times longer.
-- The world is drawn and lit, without ray-traced shadows or reflections,
-  as upstream. On AMD cards this needs RADV's waves of 32 lanes, which the
-  scripts ask for.
+- In the prologue's cell, with the Wine server `scripts/proton-viewtree.sh`
+  builds and the Series S mode `run.sh` starts, a frame takes 145 ms (about
+  7 frames a second) with klbf-lab, whose picture at night is dark with
+  magenta patches, and 260 ms (about 4) with this checkout's build, whose
+  picture is right. The opening cutscene, up to 13,000 draws a frame, is
+  much slower. With Steam's Wine server, frames take about five times longer.
+- This checkout's build draws and lights the world, without ray-traced
+  shadows or reflections, as upstream. On AMD cards this needs RADV's waves
+  of 32 lanes, which the scripts ask for.
+- fxceless's build, picked on NVIDIA cards, has not been run on one here.
 - After about 10 minutes of play the title stops itself when one of its
   object pools fills up. This also happens on Windows (upstream issue #698).
 - A PlayStation pad (DualSense) works as an XInput pad, with the Xbox
@@ -55,6 +63,8 @@ Experimental `experimental-11.0-20261112`.
   Proton or the system's Wine with vkd3d-proton and DXVK.
 - `scripts/proton-viewtree.sh`, which builds Proton's Wine server with a
   process's memory views in a tree: world frames about five times faster.
+- `scripts/base.sh`, which builds the community's fastest VIctory for the
+  card (klbf-lab, fxceless's victory-fork) with fixes for Proton.
 - Fixes for Wine and vkd3d-proton: VIctory's own shaders build with Wine's
   HLSL compiler, an empty pipeline library is asked for with a null blob,
   each translated program returns from one block (dxil-spirv cannot

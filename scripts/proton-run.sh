@@ -61,13 +61,17 @@ export WINEFSYNC=1
 # for waves of 32: in waves of 64 its geometry loses its triangles (the
 # world draws only its sky) and faces lose details (dark eyes). gewave32
 # and pswave32 ask RADV for waves of 32 there; other drivers ignore them.
-for flag in gewave32 pswave32; do
-    case ",${RADV_PERFTEST:-}," in
-        *",$flag,"*) ;;
-        *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;
-    esac
-done
-export RADV_PERFTEST
+# VICTORY_RADV_WAVE32=0 leaves RADV's waves alone, for a VIctory build that
+# splits its own ballots for 64-lane waves.
+if [[ "${VICTORY_RADV_WAVE32:-1}" != 0 ]]; then
+    for flag in gewave32 pswave32; do
+        case ",${RADV_PERFTEST:-}," in
+            *",$flag,"*) ;;
+            *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;
+        esac
+    done
+    export RADV_PERFTEST
+fi
 # vkd3d-proton's pipeline cache, out of the working directory.
 export VKD3D_SHADER_CACHE_PATH="${VKD3D_SHADER_CACHE_PATH:-$PREFIX/vkd3d-cache}"
 mkdir -p "$VKD3D_SHADER_CACHE_PATH"
