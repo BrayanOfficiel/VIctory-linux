@@ -485,6 +485,15 @@ struct MemoryEntry {
     miss: V,
 }
 
+/// Whether a lane mask joined with data where every lane enters along one
+/// edge lowers to the mask's number (upstream e8e9f0c, the title's BVH
+/// walks). Off on Linux: vkd3d-proton's DXIL to SPIR-V translation
+/// (dxil-spirv, in Proton Experimental 11.0-20261112) recurses without end
+/// on the programs it makes translatable, and the stack overflow ends the
+/// pipeline thread, so pipelines stop being made. The joins stay refused, as
+/// before e8e9f0c.
+pub(super) const MASK_NUMBERS_AT_UNIFORM_JOINS: bool = false;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MaskData {
     /// Compute: host lane n is console lane n (the program declares the
@@ -8224,7 +8233,8 @@ impl<'a> Lower<'a> {
     }
 
     /// Whether every lane enters IR block `b` along the edge the console's
-    /// wave takes, so that an SGPR joined there holds what that edge
+    /// wave takes (see `MASK_NUMBERS_AT_UNIFORM_JOINS` for where it is not
+    /// used on Linux), so that an SGPR joined there holds what that edge
     /// brought: every branch into it is uniform (SCC values). The wave runs
     /// one path; a per-lane branch into the join (an EXEC skip, a loop's
     /// per-lane exit) is where lanes would take edges the wave did not, and
@@ -10827,6 +10837,7 @@ impl<'a> Lower<'a> {
                     // number there (console lanes, so exact).
                     _ if read
                         && !bit
+                        && MASK_NUMBERS_AT_UNIFORM_JOINS
                         && self.mask_data == MaskData::Console
                         && (self.x.st.masks.contains_key(&arg) || self.x.st.highs.contains_key(&arg))
                         && self.uniform_join(b) =>
@@ -10861,7 +10872,10 @@ impl<'a> Lower<'a> {
                 // Data joined with masks where the wave takes one edge (the BVH
                 // walks pop masks from memory): with console lanes the lane's
                 // own bit of the number, as `Atom::Opaque`.
-                let number = self.console_lanes && !self.x.native.wave64 && self.uniform_join(b);
+                let number = MASK_NUMBERS_AT_UNIFORM_JOINS
+                    && self.console_lanes
+                    && !self.x.native.wave64
+                    && self.uniform_join(b);
                 let x = match (self.x.st.masks.get(&arg), self.vals.get(&arg)) {
                     (Some(&m), _) => self.boolean(m, qb).map_err(|w| unsupported(offset, w))?,
                     (None, Some(&Val::I32(word))) if number => self.lane_bit(qb, word, None),
@@ -10880,7 +10894,10 @@ impl<'a> Lower<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Lowered, Numeric, Parts, buffer_format, half_shift, lower, packed_half};
+    use super::{
+        Lowered, MASK_NUMBERS_AT_UNIFORM_JOINS, Numeric, Parts, buffer_format, half_shift, lower,
+        packed_half,
+    };
     use crate::native::{
         ComputeIo, HwStage, NativeProgram, ResourceType, RootParam, RootType, StageIo, UsedResource,
     };
@@ -11743,11 +11760,19 @@ mod tests {
             panic!("a per-lane loop's mask join translated");
         };
         assert!(what.contains("lane mask"), "{what}");
-        // Leaving on a uniform condition instead: the mask's number.
+        // Leaving on a uniform condition instead: the mask's number where
+        // the host's DXIL translation takes it, refused on Linux.
         words[5] = 0xBF0A_8207; // s_cmp_lt_u32 s7, 2
         words[6] = 0xBF80_0000; // s_nop 0
         words[7] = 0xBF85_FFFB; // s_cbranch_scc1 header
-        lowers(&words, 1 << 7).expect("a uniform loop's mask join");
+        let uniform = lowers(&words, 1 << 7);
+        assert_eq!(uniform.is_ok(), MASK_NUMBERS_AT_UNIFORM_JOINS, "a uniform loop's mask join: {uniform:?}");
+        if let Err(e) = uniform {
+            assert!(
+                matches!(&e, crate::ShaderError::Unsupported { what, .. } if what.contains("lane mask")),
+                "{e:?}"
+            );
+        }
     }
 
     #[test]

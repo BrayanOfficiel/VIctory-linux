@@ -366,6 +366,9 @@ fn permutes_read_the_lane_named_and_zero_from_lanes_left_out() {
 /// as a mask.
 #[test]
 fn a_mask_joined_with_data_at_a_uniform_loop_is_its_number() {
+    if !lower::MASK_NUMBERS_AT_UNIFORM_JOINS {
+        return; // refused on Linux: `lower::tests::a_mask_joined_with_data_needs_a_uniform_join`
+    }
     // s6 = lanes below 24, shifted right by 4 and passed through a VGPR in
     // each of two iterations; v4 takes each lane's bit of it on every pass.
     let shader = build(&[
