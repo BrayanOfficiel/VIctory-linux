@@ -50,6 +50,15 @@ first time (in `CARGO_TARGET_DIR` when set), turns the title's watchdog off
 (`VICTORY_NO_WATCHDOG=1` unless set otherwise, see below) and runs the title
 with `scripts/proton-run.sh`.
 
+`run.sh` runs the title in its Series S mode unless `--console` is given:
+the title then renders at 1280×720 and upscales with AMD FidelityFX. The
+console's upscaler draws a white picture under Proton, so `run.sh`
+downloads the PC one from AMD's FidelityFX SDK 2.4.0 (MIT licence, two DLLs
+in `~/.local/share/victory/fidelityfx`) and points `VICTORY_FIDELITYFX_DIR`
+at it. Without them, it stays in Series X mode. In the prologue's cell, a
+frame took 220 to 270 ms instead of 290 to 380 in Series X mode (RX 6950
+XT).
+
 `scripts/proton-run.sh` runs `victory.exe` with Proton's Wine, in a prefix of
 its own (`~/.local/share/victory/proton`, made on first use), with
 vkd3d-proton and DXVK. Linux paths work as arguments.

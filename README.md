@@ -36,9 +36,11 @@ Experimental `experimental-11.0-20261112`.
 
 - The title boots, runs its menus at its own 30 frames a second and loads
   the opening scene.
-- In the opening scene, a world frame takes 0.6 to 0.8 seconds with the
-  Wine server `scripts/proton-viewtree.sh` builds. Steam's is about five
-  times slower.
+- In the prologue's cell, a frame takes 220 to 270 ms (about 4 frames a
+  second) on an RX 6950 XT, with the Wine server `scripts/proton-viewtree.sh`
+  builds and the Series S mode `run.sh` starts. The opening cutscene, up to
+  13,000 draws a frame, runs at about 1 frame a second. With Steam's Wine
+  server, frames take about five times longer.
 - The world is drawn and lit, without ray-traced shadows or reflections,
   as upstream. On AMD cards this needs RADV's waves of 32 lanes, which the
   scripts ask for.

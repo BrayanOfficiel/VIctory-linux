@@ -39,4 +39,28 @@ if [[ ! -f "$exe" ]]; then
 fi
 
 export VICTORY_NO_WATCHDOG="${VICTORY_NO_WATCHDOG-1}"
-VICTORY_EXE="$exe" exec "$ROOT/scripts/proton-run.sh" run "$title" --execute "$@"
+
+# Series S mode unless --console is given: the title renders at 1280x720
+# and upscales with AMD FidelityFX, here the PC build of AMD's SDK (the
+# console's draws white under Proton). In the prologue's cell a frame took
+# 220 to 270 ms instead of 290 to 380 in Series X mode (RX 6950 XT).
+console=()
+if [[ -z "${VICTORY_FIDELITYFX_DIR:-}" ]]; then
+    ffx="${XDG_DATA_HOME:-$HOME/.local/share}/victory/fidelityfx"
+    sdk="https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v2.4.0/Kits/FidelityFX/signedbin"
+    for dll in amd_fidelityfx_loader_dx12.dll amd_fidelityfx_upscaler_dx12.dll; do
+        if [[ ! -s "$ffx/$dll" ]]; then
+            mkdir -p "$ffx"
+            echo "run.sh: downloading $dll (AMD FidelityFX SDK 2.4.0, MIT licence)" >&2
+            curl -fL --retry 3 -o "$ffx/$dll.part" "$sdk/$dll" && mv "$ffx/$dll.part" "$ffx/$dll" ||
+                rm -f "${ffx:?}/$dll.part"
+        fi
+    done
+    if [[ -s "$ffx/amd_fidelityfx_loader_dx12.dll" && -s "$ffx/amd_fidelityfx_upscaler_dx12.dll" ]]; then
+        export VICTORY_FIDELITYFX_DIR="Z:${ffx//\//\\}"
+    fi
+fi
+if [[ -n "${VICTORY_FIDELITYFX_DIR:-}" && " $* " != *" --console "* ]]; then
+    console=(--console series-s)
+fi
+VICTORY_EXE="$exe" exec "$ROOT/scripts/proton-run.sh" run "$title" --execute "${console[@]}" "$@"
