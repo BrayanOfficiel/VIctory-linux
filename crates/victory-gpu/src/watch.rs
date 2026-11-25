@@ -101,9 +101,6 @@ struct Guards {
     /// Pages where a mapping the runtime made starts or ends: one protection
     /// change cannot span them (the title's tiled heap is a view per page).
     starts: BTreeSet<usize>,
-    /// Pages out of the guards being given write access back outside the
-    /// guard lock ([`Opening`]), and by how many threads at once.
-    opening: BTreeMap<usize, u32>,
     /// Tracked pages written this frame and the frame before (diagnostics).
     #[cfg(feature = "diagnostics")]
     written: BTreeSet<usize>,
@@ -117,7 +114,6 @@ static GUARDS: Mutex<Guards> = Mutex::new(Guards {
     busy: Vec::new(),
     alias_of: BTreeMap::new(),
     starts: BTreeSet::new(),
-    opening: BTreeMap::new(),
     #[cfg(feature = "diagnostics")]
     written: BTreeSet::new(),
     #[cfg(feature = "diagnostics")]
@@ -274,18 +270,22 @@ impl Drop for Tracked {
                 }
             }
         }
-        let opening = unguard(&mut g, &free);
-        drop(g);
-        opening.open();
+        open(&mut g, &free);
     }
 }
 
-/// Takes those of `pages` (in order) we guarded out of the guards; they
-/// get write access back once the guard lock is let go ([`Opening::open`]):
-/// under Wine each protection change waits for its memory lock, which the
-/// title's threads take too, and every thread needing the guards waited
-/// behind it.
-fn unguard(g: &mut Guards, pages: &[usize]) -> Opening {
+/// Gives write access back to those of `pages` (in order) we guarded, a
+/// run at a time ([`runs`]): under Wine each call waits for its memory
+/// lock, which the title's threads take too. Page by page where a run
+/// still spans two allocations.
+fn open(g: &mut Guards, pages: &[usize]) {
+    use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
+    let set = |from: usize, to: usize| {
+        let mut old = 0;
+        let (at, len) = ((from * PAGE) as *const _, (to - from) * PAGE);
+        // SAFETY: blocks we made read-only (failing harmlessly if gone).
+        unsafe { VirtualProtect(at, len, PAGE_READWRITE, &mut old) != 0 }
+    };
     let guarded: Vec<usize> = pages
         .iter()
         .copied()
@@ -293,51 +293,13 @@ fn unguard(g: &mut Guards, pages: &[usize]) -> Opening {
         .collect();
     #[cfg(feature = "diagnostics")]
     crate::copystat::add(crate::copystat::C::OpenPages, guarded.len() as u64);
-    for &page in &guarded {
-        *g.opening.entry(page).or_default() += 1;
-    }
-    Opening(runs(g, &guarded))
-}
-
-/// Pages out of the guards and read-only still, as runs `[from, to)`
-/// ([`unguard`]).
-#[must_use = "the pages stay read-only until opened"]
-struct Opening(Vec<(usize, usize)>);
-
-impl Opening {
-    /// Gives the pages write access back, a run at a time ([`runs`]) or
-    /// page by page where a run still spans two allocations; then copies
-    /// may guard them again. Not with the guard lock held.
-    fn open(self) {
-        if self.0.is_empty() {
-            return;
-        }
-        for &(from, to) in &self.0 {
-            if !writable_again(from, to) {
-                for page in from..to {
-                    writable_again(page, page + 1);
-                }
-            }
-        }
-        let mut g = guards();
-        for page in self.0.iter().flat_map(|&(from, to)| from..to) {
-            if let Some(n) = g.opening.get_mut(&page) {
-                *n -= 1;
-                if *n == 0 {
-                    g.opening.remove(&page);
-                }
+    for (from, to) in runs(g, &guarded) {
+        if !set(from, to) {
+            for page in from..to {
+                set(page, page + 1);
             }
         }
     }
-}
-
-/// Gives pages `[from, to)` write access back; false if that failed.
-fn writable_again(from: usize, to: usize) -> bool {
-    use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
-    let mut old = 0;
-    let (at, len) = ((from * PAGE) as *const _, (to - from) * PAGE);
-    // SAFETY: blocks we made read-only (failing harmlessly if gone).
-    unsafe { VirtualProtect(at, len, PAGE_READWRITE, &mut old) != 0 }
 }
 
 /// `pages` (in order) as runs `[from, to)` of consecutive pages, cut where
@@ -489,11 +451,7 @@ fn protect(g: &mut Guards, pages: &[usize]) -> Vec<usize> {
         n == 0 || info.State != MEM_COMMIT
     };
     let mut taken = Vec::with_capacity(pages.len());
-    // Pages being opened are left too: guarded now, the write access given
-    // next would leave the guard unseen.
-    let busy = |page: usize| {
-        g.busy.iter().any(|&(a, b)| (a..b).contains(&page)) || g.opening.contains_key(&page)
-    };
+    let busy = |page: usize| g.busy.iter().any(|&(a, b)| (a..b).contains(&page));
     let pages: Vec<usize> = pages.iter().copied().filter(|&p| !busy(p)).collect();
     let mut i = 0;
     while i < pages.len() {
@@ -533,10 +491,10 @@ fn protect(g: &mut Guards, pages: &[usize]) -> Vec<usize> {
 }
 
 /// Pages `[first, last)` changed, and so the pages showing the same memory
-/// elsewhere: takes them out of the guards where we guarded them (to open
-/// once the guard lock is let go) and marks them in every tracker holding
-/// them. True if one of `[first, last)` was guarded.
-fn changed(g: &mut Guards, first: usize, last: usize, save: bool) -> (bool, Opening) {
+/// elsewhere: gives write access back where we guarded them and marks them
+/// in every tracker holding them. True if one of `[first, last)` was
+/// guarded.
+fn changed(g: &mut Guards, first: usize, last: usize, save: bool) -> bool {
     let mut others: Vec<usize> = g.alias_of.range(first..last).flat_map(|(_, o)| o.iter().copied()).collect();
     others.sort_unstable();
     others.dedup();
@@ -552,12 +510,12 @@ fn changed(g: &mut Guards, first: usize, last: usize, save: bool) -> (bool, Open
     guarded.extend(&here);
     guarded.sort_unstable();
     guarded.dedup();
-    let opening = unguard(g, &guarded);
+    open(g, &guarded);
     mark(g, first, last, save);
     for page in others {
         mark(g, page, page + 1, save);
     }
-    (!here.is_empty(), opening)
+    !here.is_empty()
 }
 
 /// Marks pages `[first, last)` changed in every tracker holding them. With
@@ -600,14 +558,11 @@ pub struct Writing {
 
 impl Drop for Writing {
     fn drop(&mut self) {
-        let opening = {
-            let mut g = guards();
-            if let Some(i) = g.busy.iter().position(|&r| r == (self.first, self.last)) {
-                g.busy.swap_remove(i);
-            }
-            changed(&mut g, self.first, self.last, false).1
-        };
-        opening.open();
+        let mut g = guards();
+        if let Some(i) = g.busy.iter().position(|&r| r == (self.first, self.last)) {
+            g.busy.swap_remove(i);
+        }
+        changed(&mut g, self.first, self.last, false);
     }
 }
 
@@ -620,12 +575,9 @@ impl Drop for Writing {
 pub fn writing(at: usize, len: usize) -> Writing {
     // The length is the title's (`fread`'s size times count, saturated).
     let (first, last) = (at / PAGE, at.saturating_add(len).div_ceil(PAGE));
-    let opening = {
-        let mut g = guards();
-        g.busy.push((first, last));
-        changed(&mut g, first, last, true).1
-    };
-    opening.open();
+    let mut g = guards();
+    g.busy.push((first, last));
+    changed(&mut g, first, last, true);
     Writing { first, last }
 }
 
@@ -637,7 +589,7 @@ pub fn title_memory_remapped(at: usize, len: usize) {
     g.starts.insert(first);
     g.starts.insert(last);
     // What it showed is gone already: nothing to keep.
-    let (_, opening) = changed(&mut g, first, last, false);
+    changed(&mut g, first, last, false);
     // What it showed is not what it shows now: its links go, both ways.
     let stale: Vec<usize> = g.alias_of.range(first..last).map(|(&p, _)| p).collect();
     for page in stale {
@@ -650,8 +602,6 @@ pub fn title_memory_remapped(at: usize, len: usize) {
             }
         }
     }
-    drop(g);
-    opening.open();
 }
 
 /// The runtime mapped the page at `at` where `others` show it already: the
@@ -699,21 +649,12 @@ fn install() {
         // since this one faulted, and a copy may have guarded it again since
         // (then it is ours again, not read-only for some other reason).
         let mut g = guards();
-        let page = at / PAGE;
-        let (ours, mut opening) = changed(&mut g, page, page + 1, true);
-        // Out of the guards but read-only still: another thread is giving
-        // it write access back, which this one does too rather than wait.
-        let pending = !ours && g.opening.contains_key(&page);
-        if pending {
-            *g.opening.entry(page).or_default() += 1;
-            opening.0.push((page, page + 1));
+        if changed(&mut g, at / PAGE, at / PAGE + 1, true) {
+            #[cfg(feature = "diagnostics")]
+            crate::copystat::add(crate::copystat::C::GuardFaults, 1);
+            return EXCEPTION_CONTINUE_EXECUTION;
         }
-        let go_on = ours || pending || writable(at);
-        drop(g);
-        opening.open();
-        #[cfg(feature = "diagnostics")]
-        crate::copystat::add(crate::copystat::C::GuardFaults, ours as u64);
-        if go_on {
+        if writable(at) {
             EXCEPTION_CONTINUE_EXECUTION
         } else {
             EXCEPTION_CONTINUE_SEARCH
@@ -933,50 +874,6 @@ pub(crate) mod tests {
         let open: Vec<bool> = (0..8).map(|k| writable(b + k * PAGE)).collect();
         assert_eq!(open, [false, false, true, true, true, false, false, false]);
         assert_eq!(t.take(b, b + 8 * PAGE), [(b + 2 * PAGE, b + 5 * PAGE)]);
-    }
-
-    /// A block out of the guards is given write access back after the guard
-    /// lock is let go: the title writing it meanwhile, still read-only, is
-    /// let through, and the write counts.
-    #[test]
-    fn a_write_while_its_block_opens_goes_through() {
-        let p = pool(2);
-        let t = track(p, 2 * PAGE, true).expect("tracked");
-        assert_eq!(t.take(p, p + 2 * PAGE), [(p, p + 2 * PAGE)]);
-        let opening = unguard(&mut guards(), &[p / PAGE]);
-        assert!(!writable(p), "not opened yet");
-        // SAFETY: our page, read-only still: the handler lets the write in.
-        unsafe { ((p + 8) as *mut u8).write_volatile(1) };
-        opening.open();
-        assert_eq!(t.take(p, p + 2 * PAGE), [(p, p + PAGE)]);
-        drop(t);
-        free(p);
-    }
-
-    /// A copy taking a block while it is being given write access back
-    /// does not guard it (the write access given next would leave the guard
-    /// unseen): the block stays to be copied, and is guarded once open.
-    #[test]
-    fn blocks_being_opened_are_not_guarded_again() {
-        let p = pool(2);
-        let t = track(p, 2 * PAGE, true).expect("tracked");
-        assert_eq!(t.take(p, p + 2 * PAGE), [(p, p + 2 * PAGE)]);
-        let opening = {
-            let mut g = guards();
-            let opening = unguard(&mut g, &[p / PAGE]);
-            mark(&mut g, p / PAGE, p / PAGE + 1, false);
-            opening
-        };
-        assert_eq!(t.take(p, p + 2 * PAGE), [(p, p + PAGE)]);
-        opening.open();
-        assert!(
-            writable(p) && t.changed(p / PAGE),
-            "open, and still to be copied"
-        );
-        assert_eq!(t.take(p, p + 2 * PAGE), [(p, p + PAGE)]);
-        assert!(!writable(p), "guarded now");
-        drop(t);
-        free(p);
     }
 
     /// `pages` pages of a fresh pagefile section mapped twice (as the
