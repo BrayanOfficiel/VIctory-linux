@@ -92,6 +92,7 @@ fn lowered(native: &NativeProgram) -> Result<HostShader, ShaderError> {
         outputs: Vec::new(),
         prims: Vec::new(),
         mesh_stride: 0,
+        view_marks: false,
     });
     let result = result?;
     let shader = HostShader {
@@ -108,6 +109,7 @@ fn lowered(native: &NativeProgram) -> Result<HostShader, ShaderError> {
         view_addresses: result.view_addresses,
         heap: result.heap,
         heap_writes: result.heap_writes,
+        view_marks: result.view_marks,
     };
     match validator::Validator::load(validator::Validator::default_path().as_deref()) {
         Ok(mut v) => {
