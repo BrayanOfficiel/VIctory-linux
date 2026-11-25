@@ -20,6 +20,7 @@ Requirements:
 ```sh
 rustup target add x86_64-pc-windows-msvc
 cargo install --locked cargo-xwin
+scripts/proton-viewtree.sh   # once: a faster Wine server (docs/linux-proton.md)
 ./run.sh /path/to/game
 ```
 
@@ -35,9 +36,9 @@ Experimental `experimental-11.0-20261112`.
 
 - The title boots, runs its menus at its own 30 frames a second and loads
   the opening scene.
-- In the world, a frame takes about 3 seconds. Keeping the title's memory
-  and the GPU in step costs much more under Wine than on Windows, and the
-  world itself is still mostly unlit, as upstream.
+- In the world, a frame takes about 0.6 seconds with the Wine server
+  `scripts/proton-viewtree.sh` builds, and about 3 seconds with Steam's.
+  The world itself is still mostly unlit, as upstream.
 - After about 10 minutes of play the title stops itself when one of its
   object pools fills up. This also happens on Windows (upstream issue #698).
 - A PlayStation pad (DualSense) works as an XInput pad, with the Xbox
@@ -47,6 +48,8 @@ Experimental `experimental-11.0-20261112`.
 
 - `run.sh`, `scripts/proton-run.sh` and `scripts/wine-run.sh`, which set up
   Proton or the system's Wine with vkd3d-proton and DXVK.
+- `scripts/proton-viewtree.sh`, which builds Proton's Wine server with a
+  process's memory views in a tree: world frames about five times faster.
 - Fixes for Wine and vkd3d-proton: VIctory's own shaders build with Wine's
   HLSL compiler, an empty pipeline library is asked for with a null blob,
   each translated program returns from one block (dxil-spirv cannot

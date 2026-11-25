@@ -60,7 +60,9 @@ scripts/proton-run.sh run /path/to/game/<the title's exe> --execute
 ```
 
 `PROTON` selects another Proton folder, `PREFIX` another prefix and
-`VICTORY_EXE` another exe (the diagnostics build, say). Saves, settings and
+`VICTORY_EXE` another exe (the diagnostics build, say). Without `PROTON`,
+the folder `scripts/proton-viewtree.sh` makes is used (next section) while
+it matches the installed Proton Experimental. Saves, settings and
 `crashes.log` live in the prefix's `%LOCALAPPDATA%\victory\data` unless
 `victory.toml` or `VICTORY_DATA_DIR` says otherwise. Wine's crash dialog is
 off in that prefix: a crash prints its backtrace in the terminal instead.
@@ -85,6 +87,39 @@ The title paces its frames at 30 a second (it sets a 33.333 ms interval).
 `VICTORY_FRAME_RATE` overrides that rate: `VICTORY_FRAME_RATE=60` paces
 frames at 60 a second, and `VICTORY_FRAME_RATE=0` does not pace them, so
 the menus run as fast as they render. Unset, the title's rate stays.
+
+### A faster Wine server
+
+The title maps and unmaps thousands of memory views a frame. Wine's server
+checks each new view against every view of the process, and walks the same
+list to find a view by its address. Under Proton, that takes most of a world
+frame. `scripts/proton-viewtree.sh` builds Proton Experimental's own Wine
+server with the views in a tree ordered by address
+(`scripts/wineserver-view-tree.patch`, from upstream issue #340), and makes
+a Proton folder that uses it:
+
+```sh
+scripts/proton-viewtree.sh
+```
+
+Only the server is built, from the Wine commit of the installed Proton
+Experimental. Every other file is a hard link to that Proton's (a copy where
+hard links cannot be made), in `~/.local/share/victory/proton-viewtree`.
+`proton-run.sh`, and so `run.sh`, use that folder while it matches the
+installed Proton Experimental. After a Steam update of Proton, they warn and
+use Steam's Proton until the script runs again. The script needs git, curl,
+autoconf, flex, bison, perl, python3 and a C compiler, and keeps the Wine
+source in `~/.cache/victory`.
+
+Measured with the diagnostics build in the opening scene (RX 6950 XT,
+medians over 3 minutes of the world, two runs each):
+
+| | Steam's server | Views in a tree |
+|---|---|---|
+| World frame | 2,592 to 2,958 ms | 556 to 612 ms |
+| Copies of title memory | 625 to 751 ms | 121 to 129 ms |
+| Protection changes | 438 ms | 45 to 47 ms |
+| First world frame after launch | 106 to 121 s | 71 s |
 
 ### Without Proton (system Wine)
 

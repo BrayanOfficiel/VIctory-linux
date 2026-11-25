@@ -11,7 +11,9 @@
 #       cargo xwin test --workspace --target x86_64-pc-windows-msvc
 #
 # Environment:
-#   PROTON       a Proton folder (default: Proton - Experimental from Steam)
+#   PROTON       a Proton folder (default: the one scripts/proton-viewtree.sh
+#                made from Proton - Experimental, else Proton - Experimental
+#                from Steam)
 #   PREFIX       the Proton prefix to use (default: ~/.local/share/victory/proton)
 #   VICTORY_EXE  the exe to run (default: this checkout's release build)
 set -euo pipefail
@@ -23,6 +25,17 @@ if [[ -z "${PROTON:-}" ]]; then
              "$HOME/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/common/Proton - Experimental"; do
         if [[ -x "$d/files/bin/wine" ]]; then PROTON="$d"; break; fi
     done
+    # The same Proton with a faster Wine server, while it was made from
+    # this one (scripts/proton-viewtree.sh writes the version it took).
+    viewtree="${XDG_DATA_HOME:-$HOME/.local/share}/victory/proton-viewtree"
+    if [[ -n "${PROTON:-}" && -f "$viewtree/.victory-viewtree" ]]; then
+        if [[ "$(awk '{print $1}' "$viewtree/.victory-viewtree")" == "$(awk '{print $2}' "$PROTON/version")" ]]; then
+            PROTON="$viewtree"
+        else
+            echo "proton-run.sh: Proton Experimental changed since $viewtree was made," \
+                 "run scripts/proton-viewtree.sh again (Steam's Proton is used meanwhile)" >&2
+        fi
+    fi
 fi
 if [[ -z "${PROTON:-}" || ! -x "$PROTON/files/bin/wine" ]]; then
     echo "Proton not found: install Proton Experimental in Steam or set PROTON" >&2
