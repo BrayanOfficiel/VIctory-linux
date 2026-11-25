@@ -60,6 +60,10 @@ pub(crate) struct Lowered {
     /// Heap handles written.
     #[cfg(test)]
     pub heap_handles: u32,
+    /// Handle annotations written (one per set of properties a handle
+    /// is used with).
+    #[cfg(test)]
+    pub annotated_handles: u32,
     /// Whether the program uses wave operations.
     #[cfg(test)]
     pub wave_ops: bool,
@@ -320,15 +324,15 @@ struct Lower<'a> {
     scalar: HashMap<Site, Address>,
     exports: HashMap<Site, &'a Export>,
     interps: HashMap<Site, &'a Interp>,
-    handles: HashMap<(usize, Site, u8, bool, u32), V>,
+    handles: HashMap<(usize, Site, u8, bool, (u32, u32)), V>,
     /// Handles made in the entry block for descriptors at addresses the
     /// root parameters alone give (table and heap loads with no other
     /// term), by base value, byte offset, dword, offset register, sampler
     /// heap and properties ([`Lower::entry_address`]).
-    entry_handles: HashMap<(EntryAddress, u8, bool, u32), V>,
+    entry_handles: HashMap<(EntryAddress, u8, bool, (u32, u32)), V>,
     /// Handles of descriptors chosen by control flow, made in their join
     /// block, by the choice (its `Debug` text), sampler heap and properties.
-    join_handles: HashMap<(String, bool, u32), V>,
+    join_handles: HashMap<(String, bool, (u32, u32)), V>,
     /// Blocks splitting the edge from one IR block to another.
     edges: HashMap<(usize, usize), usize>,
     /// Per IR block: a `done` export is behind every lane entering it.
@@ -1520,6 +1524,8 @@ impl<'a> Lower<'a> {
             nonuniform_handles: self.s.nonuniform_handles,
             #[cfg(test)]
             heap_handles: self.s.m.written_calls("dx.op.createHandleFromHeap") as u32,
+            #[cfg(test)]
+            annotated_handles: self.s.m.written_calls("dx.op.annotateHandle") as u32,
             #[cfg(test)]
             wave_ops: self.s.flags & flags::WAVE_OPS != 0,
             #[cfg(test)]
@@ -5321,7 +5327,7 @@ impl<'a> Lower<'a> {
                 // compiler reloads one before every use rather than keep it
                 // (ActivateRays: 2,399 loads of one), and one handle made in
                 // the entry block serves them all.
-                let key = (address, *first, sampler, props.0);
+                let key = (address, *first, sampler, props);
                 if let Some(&h) = self.entry_handles.get(&key) {
                     return Ok(h);
                 }
@@ -5334,7 +5340,7 @@ impl<'a> Lower<'a> {
                 Ok(h)
             }
             Source::Loaded { load, first } => {
-                let key = (self.cur, *load, *first, sampler, props.0);
+                let key = (self.cur, *load, *first, sampler, props);
                 if let Some(&h) = self.handles.get(&key) {
                     return Ok(h);
                 }
@@ -5443,7 +5449,7 @@ impl<'a> Lower<'a> {
                 // One handle at the join for every access the choice reaches
                 // (each is in a block the join dominates).
                 let _ = site;
-                let key = (format!("{src:?}"), sampler, props.0);
+                let key = (format!("{src:?}"), sampler, props);
                 if let Some(&h) = self.join_handles.get(&key) {
                     return Ok(h);
                 }
@@ -11586,6 +11592,37 @@ mod tests {
             v.validate(&mut l.dxil.clone())
                 .expect("DXIL validation failed");
         }
+    }
+
+    #[test]
+    fn a_descriptor_used_in_two_formats_gets_a_handle_for_each() {
+        // An image UAV at table entry 0, read as four floats and then
+        // updated with a 64-bit atomic: two sets of properties for one
+        // descriptor at a fixed address. One handle for both gave the read
+        // the atomic's annotation, and dxil-spirv (vkd3d-proton), which
+        // makes the resource 64-bit for the atomic, stopped on the read.
+        let mimg = |op: u32, dmask: u32| {
+            // image_<op> v[8:..], v[2:3], s[12:19] dmask dim:2D unorm
+            [0xF000_0000 | op << 18 | 1 << 12 | dmask << 8 | 1 << 3, 0x0003_0802]
+        };
+        let mut words = vec![
+            0xBE84_0300, // s_mov_b32 s4, s0
+            0xBE85_0380, // s_mov_b32 s5, 0
+            0xF40C_0302,
+            0xFA00_0000, // s_load_dwordx8 s[12:19], s[4:5], 0x0
+            0x7E04_0280, // v_mov_b32 v2, 0
+            0x7E06_0280, // v_mov_b32 v3, 0
+            0xBF8C_C07F, // s_waitcnt lgkmcnt(0)
+        ];
+        words.extend(mimg(0x00, 0xF)); // image_load v[8:11]
+        words.push(0xBF8C_3F70); // s_waitcnt vmcnt(0)
+        words.extend(mimg(0x17, 0x3)); // image_atomic_umax v[8:9], 64 bits
+        words.push(S_ENDPGM);
+        let (layout, mut used) = texture_tables();
+        used[0].kind = ResourceType::Uav;
+        let l = lower_with(&words, layout, used).unwrap();
+        // The user data's constant buffer, then the image twice.
+        assert_eq!(l.annotated_handles, 3, "one image handle for each set of properties");
     }
 
     #[test]
