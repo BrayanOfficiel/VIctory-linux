@@ -167,10 +167,8 @@ mod tests {
     fn other_builds_and_other_bytes_are_left_alone() {
         let image = Image::new();
         // SAFETY: as above.
-        assert_eq!(
-            unsafe { disarm_watchdog(image.0, &hash("0123456789abcdef")) },
-            0
-        );
+        let applied = unsafe { disarm_watchdog(image.0, &hash("0123456789abcdef")) };
+        assert_eq!(applied, 0);
         for p in WATCHDOG {
             assert_eq!(image.at(p), p.expect, "{}", p.what);
         }
