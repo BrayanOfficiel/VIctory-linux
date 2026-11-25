@@ -37,6 +37,18 @@ thread std starts with a title attached aborts the process.
 
 ## Running
 
+In one command, from the checkout:
+
+```sh
+./run.sh /path/to/game
+```
+
+The path is the folder holding the title's exe, or the exe itself; more
+`victory run` options can follow it. `run.sh` builds the release exe the
+first time (in `CARGO_TARGET_DIR` when set), turns the title's watchdog off
+(`VICTORY_NO_WATCHDOG=1` unless set otherwise, see below) and runs the title
+with `scripts/proton-run.sh`.
+
 `scripts/proton-run.sh` runs `victory.exe` with Proton's Wine, in a prefix of
 its own (`~/.local/share/victory/proton`, made on first use), with
 vkd3d-proton and DXVK. Linux paths work as arguments.

@@ -124,7 +124,11 @@ title's window has focus:
 
 VIctory also builds on Linux with `cargo-xwin` and runs there under Proton
 or Wine: see [docs/linux-proton.md](docs/linux-proton.md),
-`scripts/proton-run.sh` and `scripts/wine-run.sh`.
+`scripts/proton-run.sh` and `scripts/wine-run.sh`. In one command:
+
+```sh
+./run.sh /path/to/game
+```
 
 ## Commands
 
