@@ -4,8 +4,7 @@
 #   ./run.sh <game folder, or the title's exe> [more `victory run` options]
 #
 # The VIctory build depends on the graphics card, unless VICTORY_BUILD names
-# one: avatarmanz's VIctory-7900XTX on AMD cards, fxceless's victory-fork on
-# NVIDIA cards (the fastest each in the community's rankings, built by
+# one: corgansm's victory-corgi on AMD and NVIDIA cards (built by
 # scripts/base.sh), this
 # checkout's build ("victory") on others. This checkout's release build is
 # made first if it is missing (cargo-xwin). The title's watchdog is off
@@ -52,7 +51,7 @@ gpu_vendor() {
 build="${VICTORY_BUILD:-}"
 if [[ -z "$build" ]]; then
     case "$(gpu_vendor)" in
-        amd) build=victory-7900xtx ;;
+        amd) build=victory-corgi ;;
         nvidia) build=victory-corgi ;;
         *) build=victory ;;
     esac
