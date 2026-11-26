@@ -191,17 +191,17 @@ index 0000000..c73cdf3
 +    }
 +}
 diff --git a/crates/victory-loader/src/lib.rs b/crates/victory-loader/src/lib.rs
-index 6ab62a2..f0394e4 100644
+index 60859af..5206199 100644
 --- a/crates/victory-loader/src/lib.rs
 +++ b/crates/victory-loader/src/lib.rs
-@@ -25,6 +25,7 @@
- mod console_insn;
- mod crash;
+@@ -28,6 +28,7 @@ mod crash;
+ pub mod descriptor_sites;
+ pub mod frame_rate;
  pub mod prepare;
 +mod hooks;
  mod pool_698;
  pub(crate) mod publish;
- pub mod resolve;
+ pub mod resolution;
 diff --git a/crates/victory-loader/src/windows.rs b/crates/victory-loader/src/windows.rs
 index 6e4542e..192b506 100644
 --- a/crates/victory-loader/src/windows.rs

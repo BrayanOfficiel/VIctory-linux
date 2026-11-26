@@ -92,7 +92,7 @@ case "$build" in
         # Its own settings (scripts/play.ps1 there, without -Safe).
         for setting in TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1 \
             INDIRECT_WINDOW=1 RELAY_COPY=1 CARD_STEPS=2 INDIRECT_BATCH=2 MAP_THREADS=1 \
-            TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 SKIP_PIPELINES=none \
+            TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 D3D12_DRED=light \
             THIN=1 JOIN_PARTS=8 UPLOAD_AHEAD=1; do
             default "VICTORY_${setting%%=*}" "${setting#*=}"
         done

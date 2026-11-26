@@ -13,17 +13,17 @@ index f22dbab..3f241df 100644
          let said = title_output();
          eprint!("{said}");
 diff --git a/crates/victory-loader/src/lib.rs b/crates/victory-loader/src/lib.rs
-index c99eba4..6ab62a2 100644
+index e28b5e8..60859af 100644
 --- a/crates/victory-loader/src/lib.rs
 +++ b/crates/victory-loader/src/lib.rs
-@@ -25,6 +25,7 @@
- mod console_insn;
- mod crash;
+@@ -28,6 +28,7 @@ mod crash;
+ pub mod descriptor_sites;
+ pub mod frame_rate;
  pub mod prepare;
 +mod pool_698;
  pub(crate) mod publish;
+ pub mod resolution;
  pub mod resolve;
- #[cfg(all(windows, feature = "diagnostics"))]
 diff --git a/crates/victory-loader/src/pool_698.rs b/crates/victory-loader/src/pool_698.rs
 new file mode 100644
 index 0000000..0a30c94
