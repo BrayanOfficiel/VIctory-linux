@@ -1,0 +1,82 @@
+diff --git a/crates/victory-gpu/src/draw.rs b/crates/victory-gpu/src/draw.rs
+index 0e9a9fa..ca59f5b 100644
+--- a/crates/victory-gpu/src/draw.rs
++++ b/crates/victory-gpu/src/draw.rs
+@@ -1339,7 +1339,6 @@ impl State {
+ 
+     /// As [`State::prepare`], for draws (`mesh` false) or mesh dispatches.
+     fn prepare_for(&mut self, list: &HostList, indexed: bool, mesh: bool) -> bool {
+-        #[cfg(feature = "diagnostics")]
+         if crate::pipeline::is_skipped(self.pipeline as This) {
+             return false;
+         }
+@@ -2662,9 +2661,9 @@ impl State {
+     pub(crate) fn dispatch(&mut self, list: &HostList, x: u32, y: u32, z: u32, flags: u32) {
+         // It may write the arguments a window holds clamped.
+         self.window = None;
+-        #[cfg(feature = "diagnostics")]
+         if crate::pipeline::is_skipped(self.pipeline as This) {
+             DROPPED.fetch_add(1, Ordering::Relaxed);
++            #[cfg(feature = "diagnostics")]
+             crate::pipeline::note_drop(self.pipeline as This);
+             return;
+         }
+@@ -2686,7 +2685,8 @@ impl State {
+             DROPPED.fetch_add(1, Ordering::Relaxed);
+             #[cfg(feature = "diagnostics")]
+             {
+-                crate::pipeline::note_drop(self.pipeline as This);
++                #[cfg(feature = "diagnostics")]
++            crate::pipeline::note_drop(self.pipeline as This);
+                 self.list_dropped_roots([x, y, z]);
+             }
+             return;
+@@ -3849,8 +3849,8 @@ impl State {
+         count: Option<u64>,
+     ) -> bool {
+         // Skip before the argument clamp can mutate the indirect buffer.
+-        #[cfg(feature = "diagnostics")]
+         if crate::pipeline::is_skipped(self.pipeline as This) {
++            #[cfg(feature = "diagnostics")]
+             crate::pipeline::note_drop(self.pipeline as This);
+             return false;
+         }
+@@ -3866,6 +3866,7 @@ impl State {
+         #[cfg(not(feature = "diagnostics"))]
+         let why = |_: &str| {};
+         let Some(p) = crate::pipeline::host_pipeline(self.pipeline as This) else {
++            #[cfg(feature = "diagnostics")]
+             #[cfg(feature = "diagnostics")]
+             crate::pipeline::note_drop(self.pipeline as This);
+             return false;
+diff --git a/crates/victory-gpu/src/pipeline.rs b/crates/victory-gpu/src/pipeline.rs
+index f6b6a43..1866238 100644
+--- a/crates/victory-gpu/src/pipeline.rs
++++ b/crates/victory-gpu/src/pipeline.rs
+@@ -486,7 +486,7 @@ pub(crate) fn making() -> u64 {
+ static DROPS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+ 
+ /// Shader hashes as printed in the pipeline diagnostics.
+-#[cfg(all(windows, feature = "diagnostics"))]
++#[cfg(windows)]
+ fn parse_skip_hashes(value: &str) -> Vec<String> {
+     value
+         .split(',')
+@@ -506,7 +506,7 @@ fn parse_skip_hashes(value: &str) -> Vec<String> {
+         .collect()
+ }
+ 
+-#[cfg(all(windows, feature = "diagnostics"))]
++#[cfg(windows)]
+ fn skipped_shader(p: &Pipeline) -> Option<&str> {
+     static HASHES: OnceLock<Vec<String>> = OnceLock::new();
+     let hashes = HASHES.get_or_init(|| {
+@@ -522,7 +522,7 @@ fn skipped_shader(p: &Pipeline) -> Option<&str> {
+         .map(|shader| shader.hash.as_str())
+ }
+ 
+-#[cfg(all(windows, feature = "diagnostics"))]
++#[cfg(windows)]
+ pub(crate) fn is_skipped(this: This) -> bool {
+     !this.is_null() && skipped_shader(pipeline(this)).is_some()
+ }
