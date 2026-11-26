@@ -63,11 +63,13 @@ export WINEFSYNC=1
 # shaders in waves of 64 lanes on RDNA 2. The title's programs are written
 # for waves of 32: in waves of 64 its geometry loses its triangles (the
 # world draws only its sky) and faces lose details (dark eyes). gewave32
-# and pswave32 ask RADV for waves of 32 there; other drivers ignore them.
+# and pswave32 ask RADV for waves of 32 there, and cswave32 for compute
+# programs that do not declare a wave size (without it the network that
+# moves faces gives still mouths). Other drivers ignore them.
 # VICTORY_RADV_WAVE32=0 leaves RADV's waves alone, for a VIctory build that
 # splits its own ballots for 64-lane waves.
 if [[ "${VICTORY_RADV_WAVE32:-1}" != 0 ]]; then
-    for flag in gewave32 pswave32; do
+    for flag in gewave32 pswave32 cswave32; do
         case ",${RADV_PERFTEST:-}," in
             *",$flag,"*) ;;
             *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;

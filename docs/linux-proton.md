@@ -146,7 +146,9 @@ the menus run as fast as they render. Unset, the title's rate stays.
 On AMD cards, RADV (Mesa's Vulkan driver) runs vertex, geometry, mesh and
 pixel shaders in waves of 64 lanes on RDNA 2, while the title's programs
 expect waves of 32. Its geometry then loses its triangles, so the world shows
-only its sky, and faces lose details. Both scripts add `gewave32,pswave32` to
+only its sky, and faces lose details. Compute programs that declare no wave
+size also run in waves of 64, and the network that moves faces then leaves
+mouths still. Both scripts add `gewave32,pswave32,cswave32` to
 `RADV_PERFTEST`, keeping any value already set. Other drivers ignore it.
 `VICTORY_RADV_WAVE32=0` leaves RADV's waves alone: `run.sh` sets it for
 klbf-lab, which splits its own ballots for waves of 64 and draws wrong in

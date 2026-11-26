@@ -38,7 +38,7 @@ export WINEDLLOVERRIDES="d3d12,d3d12core,dxgi=n;mscoree,mshtml="
 # RADV's waves of 32 lanes for geometry and pixels, unless
 # VICTORY_RADV_WAVE32=0: see proton-run.sh.
 if [[ "${VICTORY_RADV_WAVE32:-1}" != 0 ]]; then
-    for flag in gewave32 pswave32; do
+    for flag in gewave32 pswave32 cswave32; do
         case ",${RADV_PERFTEST:-}," in
             *",$flag,"*) ;;
             *) RADV_PERFTEST="${RADV_PERFTEST:+$RADV_PERFTEST,}$flag" ;;
