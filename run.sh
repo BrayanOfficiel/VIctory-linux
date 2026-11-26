@@ -110,6 +110,18 @@ if [[ "$build" != victory ]]; then
     export WINEDLLOVERRIDES="d3dcompiler_47=n,b;${WINEDLLOVERRIDES:-}"
 fi
 export VICTORY_NO_WATCHDOG="${VICTORY_NO_WATCHDOG-1}"
+# 60 frames a second instead of the title's 30, unless VICTORY_FRAME_RATE
+# says otherwise (0: no pacing). This checkout reads VICTORY_FRAME_RATE;
+# VIctory-7900XTX takes an interval and gives the title the same rate, so
+# its game time follows.
+export VICTORY_FRAME_RATE="${VICTORY_FRAME_RATE-60}"
+if [[ "$build" == victory-7900xtx ]]; then
+    if [[ "$VICTORY_FRAME_RATE" == 0 ]]; then
+        default VICTORY_FRAME_INTERVAL_MS 0
+    else
+        default VICTORY_FRAME_INTERVAL_MS "$(awk -v r="$VICTORY_FRAME_RATE" 'BEGIN { printf "%.3f", 1000 / r }')"
+    fi
+fi
 # The title's BVH walks need vkd3d-proton master's dxil-spirv (Proton's
 # recurses without end on them, which stops pipelines being made).
 if [[ -z "${VICTORY_VKD3D_DIR+x}" ]] && ! "$ROOT/scripts/vkd3d-proton-master.sh" >/dev/null; then
