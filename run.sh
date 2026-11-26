@@ -162,10 +162,10 @@ fi
 
 # On RADV, vkd3d-proton master reads descriptors through
 # VK_EXT_descriptor_heap; the title's face network then gives expressions
-# two to three times too strong, and some clothes come out black.
-# Through VK_EXT_descriptor_buffer, the way it takes on AMDVLK, faces are
-# right and the frame is faster (RX 6950 XT, Mesa 26.2.6: median 18.3 ->
-# 20.6 fps in game). VICTORY_DESCRIPTOR_HEAP=1 keeps the heap.
+# two to three times too strong, some clothes come out black and trees
+# flicker. Through VK_EXT_descriptor_buffer, the way it takes on AMDVLK,
+# they are right (RX 6950 XT, Mesa 26.2.6). VICTORY_DESCRIPTOR_HEAP=1 keeps
+# the heap.
 if [[ "$(gpu_vendor)" == amd && "${VICTORY_DRIVER:-}" != amdvlk && "${VICTORY_DESCRIPTOR_HEAP:-0}" != 1 ]]; then
     case ",${VKD3D_CONFIG:-}," in
         *,no_descriptor_heap,*) ;;

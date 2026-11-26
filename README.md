@@ -50,10 +50,10 @@ docs/linux-proton.md).
 Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6), 32 GB of
 RAM and Proton Experimental `experimental-11.0-20261112`.
 
-- victory-corgi plays the prologue without a crash or a hang, at a median
-  of 20.6 frames a second in game (a tenth of the time under 15.0), in
-  Series S mode. Faces, their animation, clothes, light and textures are
-  right.
+- victory-corgi plays the prologue and the first boat ride without a crash
+  or a hang, at a median of 18.5 frames a second in game (a tenth of the
+  time under 13.2), in Series S mode. Faces, their animation, clothes,
+  trees, light and textures are right.
 - On AMD cards `run.sh` keeps vkd3d-proton off its descriptor heap
   (`VKD3D_CONFIG=no_descriptor_heap`): on RADV that path gives the title's
   facial animation two to three times too strong expressions, some
