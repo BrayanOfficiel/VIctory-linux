@@ -1,0 +1,57 @@
+diff --git a/crates/victory-shader/src/emit/lower.rs b/crates/victory-shader/src/emit/lower.rs
+index 820c241..c852353 100644
+--- a/crates/victory-shader/src/emit/lower.rs
++++ b/crates/victory-shader/src/emit/lower.rs
+@@ -394,6 +394,10 @@ struct Lower<'a> {
+     half_outputs: HashMap<u8, (bool, Option<u8>)>,
+     /// How lane masks become data.
+     mask_data: MaskData,
++    /// The one block that returns: every end of the program branches to it,
++    /// so the function has a single exit as DXC emits it (dxil-spirv, under
++    /// Proton, cannot structure a loop left by both a break and a return).
++    ret: Option<usize>,
+     /// The instruction being lowered may read lane masks as data.
+     mask_ok: bool,
+     /// Ballots of masks read as data, by low dword: (low, high).
+@@ -1594,6 +1598,7 @@ impl<'a> Lower<'a> {
+             user_reads: BTreeMap::new(),
+             half_views: Default::default(),
+             halves_only: Default::default(),
++            ret: None,
+             samplers: Vec::new(),
+             descriptors: x
+                 .res
+@@ -13031,7 +13036,7 @@ impl<'a> Lower<'a> {
+                     self.s
+                         .op(self.cur, "discard", Attr::NoUnwind, self.s.t.void, 82, &[t]);
+                 }
+-                Term::Ret
++                Term::Br(self.ret_block())
+             }
+             LaneExit::Indirect => return Err(unsupported(offset, "an indirect jump")),
+         };
+@@ -13099,11 +13104,23 @@ impl<'a> Lower<'a> {
+             self.s
+                 .op(a, "discard", Attr::NoUnwind, self.s.t.void, 82, &[t]);
+         }
+-        self.s.m.terminate(a, Term::Ret);
++        let r = self.ret_block();
++        self.s.m.terminate(a, Term::Br(r));
+         self.abort = Some(a);
+         a
+     }
+ 
++    /// The function's single returning block (see `ret`).
++    fn ret_block(&mut self) -> usize {
++        if let Some(r) = self.ret {
++            return r;
++        }
++        let r = self.s.m.new_block();
++        self.s.m.terminate(r, Term::Ret);
++        self.ret = Some(r);
++        r
++    }
++
+     /// The DXIL block a branch from IR block `from` to `to` goes to.
+     fn edge(&mut self, from: usize, to: usize) -> usize {
+         let target = self.block[to].expect("reachable");

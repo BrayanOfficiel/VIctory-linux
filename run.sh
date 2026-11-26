@@ -53,11 +53,11 @@ build="${VICTORY_BUILD:-}"
 if [[ -z "$build" ]]; then
     case "$(gpu_vendor)" in
         amd) build=victory-7900xtx ;;
-        nvidia) build=victory-fork ;;
+        nvidia) build=victory-corgi ;;
         *) build=victory ;;
     esac
 fi
-echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, nvidia-alt, klbf-lab or victory-fork)" >&2
+echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, victory-corgi, nvidia-alt, klbf-lab or victory-fork)" >&2
 
 # A variable's value unless it is set already.
 default() {
@@ -105,6 +105,23 @@ case "$build" in
             done
         fi
         ;;
+    victory-corgi)
+        exe="$("$ROOT/scripts/base.sh" victory-corgi)"
+        # Its own settings (scripts/play-highram.ps1 there, by default):
+        # VIctory-7900XTX's, one recording thread (NVIDIA's capped
+        # descriptor pool), every title buffer copied to the card, paired
+        # translation for the two programs NVIDIA refuses, ray walks that
+        # miss at once, the title's own upscaler.
+        for setting in TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1 \
+            INDIRECT_WINDOW=1 RELAY_COPY=1 CARD_STEPS=2 INDIRECT_BATCH=2 MAP_THREADS=1 \
+            TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 D3D12_DRED=light \
+            SKIP_PIPELINES=none THIN=0 JOIN_PARTS=8 UPLOAD_AHEAD=1 PIPELINE_WAIT_MS=10000 \
+            DYNAMIC_SLOTS=524288 OWN_UPSCALER=1 BVH_MISS=1 CARD_BUFFERS_MIN_MB=1 \
+            CARD_BUFFERS_MB=1536 COMPOSE=1 F16_NEAREST=1 CARD_ALL=1 FETCH_CHECK=1 \
+            PAIRED_ONLY=b5b838548eaa4050638308fb2c805641,2431bbe7dc154ad759d20bc954829c1c; do
+            default "VICTORY_${setting%%=*}" "${setting#*=}"
+        done
+        ;;
     victory-fork)
         exe="$("$ROOT/scripts/base.sh" victory-fork)"
         ;;
@@ -123,7 +140,7 @@ export VICTORY_NO_WATCHDOG="${VICTORY_NO_WATCHDOG-1}"
 # VIctory-7900XTX takes an interval and gives the title the same rate, so
 # its game time follows.
 export VICTORY_FRAME_RATE="${VICTORY_FRAME_RATE-60}"
-if [[ "$build" == victory-7900xtx || "$build" == nvidia-alt ]]; then
+if [[ "$build" == victory-7900xtx || "$build" == nvidia-alt || "$build" == victory-corgi ]]; then
     if [[ "$VICTORY_FRAME_RATE" == 0 ]]; then
         default VICTORY_FRAME_INTERVAL_MS 0
     else
@@ -142,7 +159,7 @@ fi
 # white under Proton). In the prologue's cell a frame took 220 to 270 ms
 # instead of 290 to 380 in Series X mode (this checkout, RX 6950 XT).
 console=()
-if [[ "$build" == victory || "$build" == klbf-lab ]]; then
+if [[ "$build" == victory || "$build" == klbf-lab || "$build" == victory-corgi ]]; then
     ffx="${XDG_DATA_HOME:-$HOME/.local/share}/victory/fidelityfx"
     sdk="https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v2.4.0/Kits/FidelityFX/signedbin"
     # The SDK 2.4.0 files' SHA-256: a download is kept only if it matches.
