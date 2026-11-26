@@ -21,11 +21,13 @@ const GAP: f32 = 8.0;
 
 /// The columns follow their dots' height, so the lines fan out instead of
 /// crossing: twelve rows, each box level with the band of dots it serves.
+/// The four back buttons lead each side, then View and Start: their dots
+/// sit inside the pad, and the lines reach them over the sticks' band.
 const LEFT_COLUMN: [&str; 12] = [
     "LT",
     "LB",
-    "LeftStickUp",
     "View",
+    "LeftStickUp",
     "LeftStickRight",
     "LS",
     "LeftStickLeft",
@@ -38,10 +40,10 @@ const LEFT_COLUMN: [&str; 12] = [
 const RIGHT_COLUMN: [&str; 12] = [
     "RT",
     "RB",
+    "Start",
     "Y",
     "B",
     "X",
-    "Start",
     "A",
     "RightStickUp",
     "RightStickRight",
