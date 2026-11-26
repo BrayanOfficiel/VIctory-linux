@@ -124,7 +124,10 @@ off in that prefix: a crash prints its backtrace in the terminal instead.
 
 With an Xbox controller connected, the keyboard is not a pad (as on
 Windows). `VICTORY_KEYS` presses still reach the title, on the first
-connected pad.
+connected pad. `run.sh` hands a `keybinds.conf` from the repo folder to
+the game (`VICTORY_KEYBINDS` names another), so a AZERTY or Colemak user
+rebinds the stand-in without touching a script; the README's Keyboard
+fallback lists the names.
 
 VIctory reads XInput pads. Wine shows a PlayStation pad (a DualSense) as a
 raw HID device, which no XInput slot answers, so both scripts set Wine's

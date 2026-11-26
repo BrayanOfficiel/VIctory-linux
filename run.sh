@@ -237,4 +237,10 @@ if [[ "${VICTORY_DIAG:-0}" == 1 ]]; then
     diag="${exe/\/release\//\/diag\/}"
     if [[ -f "$diag" ]]; then exe="$diag"; else echo "run.sh: no diagnostics build at $diag" >&2; fi
 fi
+# The stand-in pad's keys: a `keybinds.conf` in this folder (copy
+# `keybinds.example.conf`) is passed to the game when VICTORY_KEYBINDS
+# says nothing. Edit it while the title runs; changes land within a second.
+if [[ -z "${VICTORY_KEYBINDS:-}" && -f "$ROOT/keybinds.conf" ]]; then
+    export VICTORY_KEYBINDS="$ROOT/keybinds.conf"
+fi
 VICTORY_EXE="$exe" exec "$ROOT/scripts/proton-run.sh" run "$title" --execute "${console[@]}" "$@"

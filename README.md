@@ -110,10 +110,11 @@ With no gamepad connected the keyboard stands in as one pad. The default
 keys (W A S D and I J K L for the sticks, Enter Backspace X Y on the face,
 Q E Z C on the shoulders and triggers, F H on the stick clicks, arrows on
 the d-pad, Esc and Tab on Menu and View) live in `keybinds.conf`. Copy
-`keybinds.example.conf` next to the executable, or set `VICTORY_KEYBINDS`
-to your own file, and edit it while the game runs: changes are picked up
-within a second, and a bad line only warns. A plugged-in gamepad always
-wins over the stand-in.
+`keybinds.example.conf` to `keybinds.conf` in this folder (`run.sh`
+hands it to the game; `VICTORY_KEYBINDS` names another file, and one
+next to the executable works too), and edit it while the game runs:
+changes are picked up within a second, and a bad line only warns. A
+plugged-in gamepad always wins over the stand-in.
 
 ## Status (version 0.1.2)
 
