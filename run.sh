@@ -66,10 +66,10 @@ case "$build" in
     victory)
         target="${CARGO_TARGET_DIR:-$ROOT/target}"
         exe="$target/x86_64-pc-windows-msvc/release/victory.exe"
-        if [[ ! -f "$exe" ]]; then
-            echo "run.sh: building VIctory (release) first" >&2
-            (cd "$ROOT" && XWIN_ACCEPT_LICENSE=1 cargo xwin build --release -p victory --target x86_64-pc-windows-msvc)
-        fi
+        # Build every time: cargo does nothing when nothing changed, and a
+        # stale exe here silently drops features (keybinds.conf first).
+        echo "run.sh: building VIctory (release) if needed" >&2
+        (cd "$ROOT" && XWIN_ACCEPT_LICENSE=1 cargo xwin build --release -p victory --target x86_64-pc-windows-msvc)
         ;;
     klbf-lab)
         exe="$("$ROOT/scripts/base.sh" klbf-lab)"

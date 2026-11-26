@@ -1,0 +1,370 @@
+--- a/crates/victory-hle/src/modules/gameinput.rs
++++ b/crates/victory-hle/src/modules/gameinput.rs
+@@ -11,11 +11,12 @@
+ use std::collections::VecDeque;
+ use std::ffi::c_void;
+ use std::ops::Deref;
++use std::path::PathBuf;
+ use std::ptr::NonNull;
+ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+ use std::sync::{Condvar, LazyLock, Mutex, MutexGuard, PoisonError};
+ use std::thread::ThreadId;
+-use std::time::{Duration, Instant};
++use std::time::{Duration, Instant, SystemTime};
+ 
+ use super::xasync::{E_INVALIDARG, E_NOTIMPL};
+ use super::xgameruntime::{HRESULT, S_OK};
+@@ -80,6 +81,157 @@
+     (b'H', RIGHT_STICK),
+ ];
+ 
++/// A keyboard key by name, as `keybinds.conf` and `VICTORY_KEYS` spell it:
++/// a letter or digit, or `Enter`, `Esc`, `Tab`, `Backspace`, `Space`, an
++/// arrow, `Shift`, `Ctrl`, `Alt`, `Home`, `End`, `PageUp`, `PageDown`,
++/// `Insert`, `Delete`, `Menu`, or `F1` to `F12`.
++fn key_vk(name: &str) -> Option<u8> {
++    let lower = name.to_ascii_lowercase();
++    if lower.len() == 1 && lower.as_bytes()[0].is_ascii_alphanumeric() {
++        return Some(lower.as_bytes()[0].to_ascii_uppercase());
++    }
++    if let Some(f) = lower.strip_prefix('f')
++        && let Ok(n) = f.parse::<u32>()
++        && (1..=12).contains(&n)
++    {
++        return Some(0x70 + n as u8 - 1);
++    }
++    let vk = match lower.as_str() {
++        "enter" | "return" => 0x0D,
++        "esc" | "escape" => 0x1B,
++        "tab" => 0x09,
++        "backspace" | "back" => 0x08,
++        "space" => 0x20,
++        "up" => 0x26,
++        "down" => 0x28,
++        "left" => 0x25,
++        "right" => 0x27,
++        "shift" => 0x10,
++        "ctrl" => 0x11,
++        "alt" => 0x12,
++        "home" => 0x24,
++        "end" => 0x23,
++        "pageup" | "pgup" => 0x21,
++        "pagedown" | "pgdn" => 0x22,
++        "insert" => 0x2D,
++        "delete" | "del" => 0x2E,
++        "menu" => 0x5D,
++        _ => return None,
++    };
++    Some(vk)
++}
++
++/// The stand-in pad's keyboard mapping: which key presses which button,
++/// and which key drives each analog action. A zero virtual key means the
++/// action is unbound. Several keys may share a button; analog actions take
++/// one key each.
++#[derive(Clone, Debug, PartialEq, Eq)]
++struct Mapping {
++    /// (virtual key, button bit); a button may appear once per bound key.
++    buttons: Vec<(u8, u32)>,
++    left_trigger: u8,
++    right_trigger: u8,
++    left_up: u8,
++    left_down: u8,
++    left_left: u8,
++    left_right: u8,
++    right_up: u8,
++    right_down: u8,
++    right_left: u8,
++    right_right: u8,
++}
++
++impl Default for Mapping {
++    /// The README table: `FALLBACK_BUTTONS` for the buttons, W/A/S/D and
++    /// I/J/K/L for the sticks, Z and C for the triggers.
++    fn default() -> Self {
++        Mapping {
++            buttons: FALLBACK_BUTTONS.to_vec(),
++            left_trigger: b'Z',
++            right_trigger: b'C',
++            left_up: b'W',
++            left_down: b'S',
++            left_left: b'A',
++            left_right: b'D',
++            right_up: b'I',
++            right_down: b'K',
++            right_left: b'J',
++            right_right: b'L',
++        }
++    }
++}
++
++impl Mapping {
++    /// Reads `keybinds.conf` text: one `Action = Key...` per line, `#`
++    /// starts a comment, several keys may share a button, and an empty
++    /// value unbinds. A line overrides its action's default; an unknown
++    /// name warns and leaves that action alone (so a line whose keys are
++    /// all nonsense keeps the default rather than silently unbinding).
++    fn load(text: &str) -> (Self, Vec<String>) {
++        let mut map = Self::default();
++        let mut warns = Vec::new();
++        for (at, line) in text.lines().enumerate() {
++            let line = line.split('#').next().unwrap_or("").trim();
++            if line.is_empty() {
++                continue;
++            }
++            let Some((action, keys)) = line.split_once('=') else {
++                warns.push(format!("line {}: not an assignment", at + 1));
++                continue;
++            };
++            let mut bound = Vec::new();
++            for name in keys.split([' ', ',']).filter(|k| !k.trim().is_empty()) {
++                match key_vk(name.trim()) {
++                    Some(vk) => bound.push(vk),
++                    None => warns.push(format!("line {}: unknown key {}", at + 1, name.trim())),
++                }
++            }
++            let named = !keys.trim().is_empty();
++            if named && bound.is_empty() {
++                continue; // every key was nonsense; the default stands
++            }
++            let bind = |map: &mut Self, bit: u32| {
++                map.buttons.retain(|(_, b)| *b != bit);
++                map.buttons.extend(bound.iter().map(|vk| (*vk, bit)));
++            };
++            let mut analog = |slot: &mut u8| {
++                if bound.len() > 1 {
++                    warns.push(format!("line {}: one key per analog action", at + 1));
++                }
++                *slot = *bound.first().unwrap_or(&0);
++            };
++            match action.trim() {
++                "A" => bind(&mut map, A),
++                "B" => bind(&mut map, B),
++                "X" => bind(&mut map, X),
++                "Y" => bind(&mut map, Y),
++                "LB" => bind(&mut map, LEFT_SHOULDER),
++                "RB" => bind(&mut map, RIGHT_SHOULDER),
++                "LS" | "LeftStick" | "LeftStickClick" => bind(&mut map, LEFT_STICK),
++                "RS" | "RightStick" | "RightStickClick" => bind(&mut map, RIGHT_STICK),
++                "Start" | "Menu" => bind(&mut map, MENU),
++                "View" | "Back" => bind(&mut map, VIEW),
++                "Up" | "DPadUp" => bind(&mut map, UP),
++                "Down" | "DPadDown" => bind(&mut map, DOWN),
++                "Left" | "DPadLeft" => bind(&mut map, LEFT),
++                "Right" | "DPadRight" => bind(&mut map, RIGHT),
++                "LT" | "LeftTrigger" => analog(&mut map.left_trigger),
++                "RT" | "RightTrigger" => analog(&mut map.right_trigger),
++                "LeftStickUp" => analog(&mut map.left_up),
++                "LeftStickDown" => analog(&mut map.left_down),
++                "LeftStickLeft" => analog(&mut map.left_left),
++                "LeftStickRight" => analog(&mut map.left_right),
++                "RightStickUp" => analog(&mut map.right_up),
++                "RightStickDown" => analog(&mut map.right_down),
++                "RightStickLeft" => analog(&mut map.right_left),
++                "RightStickRight" => analog(&mut map.right_right),
++                other => warns.push(format!("line {}: unknown action {other}", at + 1)),
++            }
++        }
++        (map, warns)
++    }
++}
++
+ /// A gamepad reading: triggers 0 to 1, sticks -1 to 1 (up positive).
+ #[repr(C)]
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+@@ -116,27 +268,125 @@
+ }
+ 
+ fn fallback(keys: &[KeyState]) -> PadState {
++    fallback_with(&mapping(), keys)
++}
++
++/// The stand-in pad as one mapping sees it: a held key lights every
++/// button bound to it; opposing stick keys cancel.
++fn fallback_with(map: &Mapping, keys: &[KeyState]) -> PadState {
+     let on = |vk: u8| {
+-        if keys.iter().any(|k| k.virtual_key == vk) {
++        if vk != 0 && keys.iter().any(|k| k.virtual_key == vk) {
+             1.0
+         } else {
+             0.0
+         }
+     };
+     PadState {
+-        buttons: FALLBACK_BUTTONS
++        buttons: map
++            .buttons
+             .iter()
+             .filter(|(vk, _)| on(*vk) != 0.0)
+             .fold(0, |all, (_, bit)| all | bit),
+-        left_trigger: on(b'Z'),
+-        right_trigger: on(b'C'),
+-        left_x: on(b'D') - on(b'A'),
+-        left_y: on(b'W') - on(b'S'),
+-        right_x: on(b'L') - on(b'J'),
+-        right_y: on(b'I') - on(b'K'),
++        left_trigger: on(map.left_trigger),
++        right_trigger: on(map.right_trigger),
++        left_x: on(map.left_right) - on(map.left_left),
++        left_y: on(map.left_up) - on(map.left_down),
++        right_x: on(map.right_right) - on(map.right_left),
++        right_y: on(map.right_up) - on(map.right_down),
+     }
+ }
+ 
++/// How often the poll thread looks at the conf file's time again.
++const RECHECK: Duration = Duration::from_secs(1);
++
++/// The mapping in effect, with its file: read once at startup, then again
++/// whenever the file's time changes, so editing it takes hold while the
++/// title runs. Checks happen on the poll thread; the mutex is only there
++/// for the `static`.
++struct Live {
++    path: Option<PathBuf>,
++    mapping: Mapping,
++    mtime: Option<SystemTime>,
++    checked: Option<Instant>,
++}
++
++impl Live {
++    /// Resolves the file and reads it, or settles on the defaults.
++    fn start() -> Live {
++        let mut live = Live {
++            path: resolve_conf(),
++            mapping: Mapping::default(),
++            mtime: None,
++            checked: Some(Instant::now()),
++        };
++        if live.path.is_some() {
++            live.reload();
++        }
++        live
++    }
++
++    /// The current mapping; checks the file at most once a second.
++    fn get(&mut self, now: Instant) -> &Mapping {
++        if self.checked.is_some_and(|at| now - at < RECHECK) {
++            return &self.mapping;
++        }
++        self.checked = Some(now);
++        if let Some(path) = &self.path
++            && let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified())
++            && Some(mtime) != self.mtime
++        {
++            self.reload();
++        }
++        &self.mapping
++    }
++
++    /// Re-reads the file: a bad line warns and keeps its default; a file
++    /// that cannot be read keeps the mapping as it was.
++    fn reload(&mut self) {
++        let Some(path) = &self.path else {
++            return;
++        };
++        let Ok(text) = std::fs::read_to_string(path) else {
++            if self.mtime.is_some() {
++                tracing::warn!(file = %path.display(), "keybinds unreadable, keeping the mapping");
++            }
++            self.mtime = None;
++            return;
++        };
++        let (mapping, warns) = Mapping::load(&text);
++        for w in &warns {
++            tracing::warn!(file = %path.display(), "keybinds: {w}");
++        }
++        self.mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
++        tracing::info!(file = %path.display(), keys = mapping.buttons.len(), "keybinds loaded");
++        self.mapping = mapping;
++    }
++}
++
++/// The conf path: `VICTORY_KEYBINDS` first, else a `keybinds.conf` next
++/// to the executable, else nothing, and the defaults stand.
++fn resolve_conf() -> Option<PathBuf> {
++    if let Some(list) = std::env::var_os("VICTORY_KEYBINDS") {
++        let path = PathBuf::from(list);
++        if !path.is_file() {
++            tracing::warn!(file = %path.display(), "VICTORY_KEYBINDS points at no file; the defaults stand");
++        }
++        return Some(path);
++    }
++    let beside = std::env::current_exe()
++        .ok()?
++        .parent()?
++        .join("keybinds.conf");
++    beside.is_file().then_some(beside)
++}
++
++static LIVE: LazyLock<Mutex<Live>> = LazyLock::new(|| Mutex::new(Live::start()));
++
++/// The keyboard mapping the stand-in pad uses right now.
++fn mapping() -> Mapping {
++    lock(&LIVE).get(Instant::now()).clone()
++}
++
+ /// Two pads as one: buttons of both, and of each axis and trigger the one
+ /// pushed further.
+ fn merged(a: PadState, b: PadState) -> PadState {
+@@ -1778,4 +2028,61 @@
+         rumble(device, std::ptr::null());
+         assert_eq!(host.lock().unwrap().rumble, [(2, 32767, 65535), (2, 0, 0)]);
+     }
++
++    #[test]
++    fn key_names_parse_as_the_conf_spells_them() {
++        assert_eq!(key_vk("w"), Some(b'W'));
++        assert_eq!(key_vk("7"), Some(b'7'));
++        assert_eq!(key_vk("Enter"), Some(0x0D));
++        assert_eq!(key_vk("Backspace"), Some(0x08));
++        assert_eq!(key_vk("Space"), Some(0x20));
++        assert_eq!(key_vk("up"), Some(0x26));
++        assert_eq!(key_vk("F1"), Some(0x70));
++        assert_eq!(key_vk("F12"), Some(0x7B));
++        assert_eq!(key_vk("F13"), None);
++        assert_eq!(key_vk("nope"), None);
++    }
++
++    #[test]
++    fn conf_lines_override_defaults_and_nonsense_keeps_them() {
++        let (map, warns) =
++            Mapping::load("# mine\nA = K, L\nLeftStickUp = Up\nBogus = Z\nY = Wat\nRT =\n");
++        // "Bogus" is no action, "Wat" is no key; both warn, nothing else.
++        assert_eq!(warns.len(), 2, "{warns:?}");
++        // A takes K and now; the default Enter binds nothing anymore.
++        assert_eq!(fallback_with(&map, &[key(b'K')]).buttons, A);
++        assert_eq!(fallback_with(&map, &[key(0x0D)]).buttons, 0);
++        // An unmapped action keeps its default (Y is still the Y key).
++        assert_eq!(fallback_with(&map, &[key(b'Y')]).buttons, Y);
++        // The stick took the arrow key; the trigger line unbound C.
++        assert_eq!(fallback_with(&map, &[key(0x26)]).left_y, 1.0);
++        assert_eq!(fallback_with(&map, &[key(b'W')]).left_y, 0.0);
++        assert_eq!(fallback_with(&map, &[key(b'C')]).right_trigger, 0.0);
++        assert_eq!(fallback_with(&map, &[key(b'Z')]).left_trigger, 1.0);
++    }
++
++    #[test]
++    fn the_conf_reloads_when_the_file_changes() {
++        let dir = std::env::temp_dir().join(format!("victory-keybinds-{}", std::process::id()));
++        let path = dir.join("keybinds.conf");
++        std::fs::create_dir_all(&dir).unwrap();
++        std::fs::write(&path, "A = K\n").unwrap();
++        let mut live = Live {
++            path: Some(path.clone()),
++            mapping: Mapping::default(),
++            mtime: None,
++            checked: None,
++        };
++        let at = Instant::now();
++        assert_eq!(fallback_with(live.get(at), &[key(b'K')]).buttons, A);
++        assert_eq!(fallback_with(live.get(at), &[key(0x0D)]).buttons, 0);
++        std::fs::write(&path, "A = L\n").unwrap();
++        // inside the recheck second, the file is not looked at again
++        assert_eq!(fallback_with(live.get(at), &[key(b'K')]).buttons, A);
++        // past it, the new file is in effect
++        let later = at + RECHECK * 2;
++        assert_eq!(fallback_with(live.get(later), &[key(b'L')]).buttons, A);
++        assert_eq!(fallback_with(live.get(later), &[key(b'K')]).buttons, 0);
++        std::fs::remove_dir_all(&dir).ok();
++    }
+ }
