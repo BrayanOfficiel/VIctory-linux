@@ -45,17 +45,16 @@ in a prefix of its own, `~/.local/share/victory/proton`, made on first use.
 Key presses can be scripted for unattended runs (`VICTORY_KEYS`, see
 docs/linux-proton.md).
 
-## Status (version 0.1.0)
+## Status (version 0.1.1)
 
 Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6), 32 GB of
 RAM and Proton Experimental `experimental-11.0-20261112`.
 
-- victory-corgi plays the prologue: 8 minutes in the opening scene without
-  a crash or a hang, at a median of 18.5 frames a second (a tenth of the
-  time under 10, at most 27), in Series S mode. Faces, light and textures
-  are right.
-- Known defects, on Windows too: mouths do not move on AMD cards, and trees
-  flicker or vanish in places.
+- victory-corgi plays the prologue up to the first package without a crash
+  or a hang, at a median of 18.3 frames a second (a tenth of the time under
+  15.6, at most 25.6), in Series S mode. Faces, light and textures are
+  right, and mouths move, a little too much.
+- Known defect, on Windows too: trees flicker or vanish in places.
 - On NVIDIA cards victory-corgi has not been run under Linux. Its author
   measures 19 to 26 frames a second on Windows, with moving mouths.
 - With 32 GB of RAM the title swaps in its busiest scenes, and the frame
