@@ -113,18 +113,26 @@ case "$build" in
         if [[ "$(gpu_vendor)" == amd && "${VICTORY_FACES:-still}" != animated ]]; then
             default VICTORY_SKIP_PIPELINES "0709e8356abd9082,0aa7934094794dbf,13c8daa0bad76f2a,164a8fa92a2c699f,21e30428bed8410d,2666062bd7f4c95d,305809281f57812f,3d65925d7cd4a39a,5e5d98e4ff3a7cf9,6a04b371a8e26853,6b176df5514d9a3f,7a38ed7f5205f384,7de0f9db96ddd295,7dfd9a07e164f011,918081d4df02c5bc,a06ef09446bd6e70,aaf7da7a94dc72a9,b22a16a178976e1b,d4bc666022520dfd,e4576c6eca0f8ce3,e4d850a7baf18270,e8820cb254b5c681,eb109d093eb4ddbe,f8425d3c03df62a0"
         fi
-        # Its own settings (scripts/play-highram.ps1 there, by default):
-        # VIctory-7900XTX's, one recording thread (NVIDIA's capped
-        # descriptor pool), every title buffer copied to the card, paired
-        # translation for the two programs NVIDIA refuses, ray walks that
-        # miss at once, the title's own upscaler.
-        for setting in TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1 \
-            INDIRECT_WINDOW=1 RELAY_COPY=1 CARD_STEPS=2 INDIRECT_BATCH=2 MAP_THREADS=1 \
-            TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 D3D12_DRED=light \
-            SKIP_PIPELINES=none THIN=0 JOIN_PARTS=8 UPLOAD_AHEAD=1 PIPELINE_WAIT_MS=10000 \
-            DYNAMIC_SLOTS=524288 OWN_UPSCALER=1 BVH_MISS=1 CARD_BUFFERS_MIN_MB=1 \
-            CARD_BUFFERS_MB=1536 COMPOSE=1 F16_NEAREST=1 CARD_ALL=1 FETCH_CHECK=1 \
-            PAIRED_ONLY=b5b838548eaa4050638308fb2c805641,2431bbe7dc154ad759d20bc954829c1c; do
+        # Its own settings, by card: scripts/play-nvidia.ps1 there on NVIDIA
+        # cards (measured on an RTX 5070: 20-22 fps, no device loss), its
+        # play-highram.ps1 elsewhere (every title buffer copied to the card,
+        # results fetched in flight checked: more card and host memory).
+        # VICTORY_PROFILE=nvidia or highram picks one.
+        profile="${VICTORY_PROFILE:-$([[ "$(gpu_vendor)" == nvidia ]] && echo nvidia || echo highram)}"
+        common="TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1
+            INDIRECT_WINDOW=1 RELAY_COPY=1 CARD_STEPS=2 INDIRECT_BATCH=2 MAP_THREADS=1
+            TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 D3D12_DRED=light
+            SKIP_PIPELINES=none JOIN_PARTS=8 UPLOAD_AHEAD=1 PIPELINE_WAIT_MS=10000
+            DYNAMIC_SLOTS=524288 OWN_UPSCALER=1 BVH_MISS=1 CARD_BUFFERS_MIN_MB=1
+            CARD_BUFFERS_MB=1536 COMPOSE=1"
+        case "$profile" in
+            nvidia) own="THIN=1 RENDER_SCALE=0.5" ;;
+            highram) own="THIN=0 F16_NEAREST=1 CARD_ALL=1 FETCH_CHECK=1
+                PAIRED_ONLY=b5b838548eaa4050638308fb2c805641,2431bbe7dc154ad759d20bc954829c1c" ;;
+            *) echo "run.sh: unknown VICTORY_PROFILE $profile (nvidia or highram)" >&2; exit 2 ;;
+        esac
+        echo "run.sh: victory-corgi settings: $profile" >&2
+        for setting in $common $own; do
             default "VICTORY_${setting%%=*}" "${setting#*=}"
         done
         ;;
