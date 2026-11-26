@@ -1,0 +1,48 @@
+diff --git a/crates/victory-hle/src/modules/gameinput.rs b/crates/victory-hle/src/modules/gameinput.rs
+index a6498ea..7bce73b 100644
+--- a/crates/victory-hle/src/modules/gameinput.rs
++++ b/crates/victory-hle/src/modules/gameinput.rs
+@@ -1197,7 +1197,6 @@ mod host {
+             // pad's buttons, by the stand-in pad's table: with a real pad
+             // connected the stand-in is not there, and a title that listens
+             // to the pad (the title's start screen) saw nothing.
+-            #[cfg(feature = "diagnostics")]
+             if slot == 0 {
+                 for vk in scripted() {
+                     if let Some(&(_, button)) = super::FALLBACK_BUTTONS.iter().find(|(key, _)| *key == vk) {
+@@ -1209,10 +1208,7 @@ mod host {
+         }
+ 
+         fn keys(&mut self) -> Vec<KeyState> {
+-            #[cfg(feature = "diagnostics")]
+             let mut down = scripted();
+-            #[cfg(not(feature = "diagnostics"))]
+-            let mut down = Vec::new();
+             if focused() {
+                 // Left/right modifier keys only, as devices report them; no
+                 // mouse buttons (below 0x08).
+@@ -1247,7 +1243,7 @@ mod host {
+ 
+     /// The key a script names: a letter, a digit, or `Enter`, `Esc`, `Tab`, `Back`, `Up`,
+     /// `Down`, `Left`, `Right` (the stand-in pad's table maps them to buttons).
+-    #[cfg(feature = "diagnostics")]
++    /// In release builds too, so that runs pass the start screen alone.
+     fn named(key: &str) -> Option<u8> {
+         Some(match key.trim() {
+             "Enter" => 0x0D,
+@@ -1268,7 +1264,6 @@ mod host {
+     /// `<key>[+<key>...] [<hold ms>]` (keys by [`named`], held 150 ms when left out). A new
+     /// line is pressed when it is seen (the file is looked at every 50 ms); a file made
+     /// shorter is read again from its start.
+-    #[cfg(feature = "diagnostics")]
+     fn live() -> Vec<u8> {
+         use std::io::{Read, Seek, SeekFrom};
+         struct Live {
+@@ -1329,7 +1324,6 @@ mod host {
+     /// 0.2 s that long after input starts (`<from>-<to>:<key>`: all that
+     /// time), with or without focus (keys by [`named`]); and the lines of
+     /// `VICTORY_INPUT_FILE` ([`live`]).
+-    #[cfg(feature = "diagnostics")]
+     fn scripted() -> Vec<u8> {
+         static SCRIPT: LazyLock<(Instant, Vec<(Duration, Duration, u8)>)> = LazyLock::new(|| {
+             let list = std::env::var("VICTORY_KEYS").unwrap_or_default();

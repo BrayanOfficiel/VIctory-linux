@@ -56,7 +56,7 @@ if [[ -z "$build" ]]; then
         *) build=victory ;;
     esac
 fi
-echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, victory-corgi, belobug, nvidia-alt, klbf-lab or victory-fork)" >&2
+echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, victory-corgi, victory-drae, belobug, nvidia-alt, klbf-lab or victory-fork)" >&2
 
 # A variable's value unless it is set already.
 default() {
@@ -106,8 +106,11 @@ case "$build" in
             done
         fi
         ;;
-    victory-corgi)
-        exe="$("$ROOT/scripts/base.sh" victory-corgi)"
+    victory-corgi | victory-drae)
+        # victory-drae: Draesia's victory-corgi with 4 KiB parts fetched
+        # back (VICTORY_FETCH_PARTS), one pipeline-wait budget for all
+        # threads, a larger buffer-lookup cache and Switch Pro pads.
+        exe="$("$ROOT/scripts/base.sh" "$build")"
         # Its own settings, by card: scripts/play-nvidia.ps1 there on NVIDIA
         # cards (measured on an RTX 5070: 20-22 fps, no device loss), its
         # play-highram.ps1 elsewhere (every title buffer copied to the card,
@@ -149,7 +152,7 @@ export VICTORY_NO_WATCHDOG="${VICTORY_NO_WATCHDOG-1}"
 # VIctory-7900XTX takes an interval and gives the title the same rate, so
 # its game time follows.
 export VICTORY_FRAME_RATE="${VICTORY_FRAME_RATE-60}"
-if [[ "$build" == victory-7900xtx || "$build" == nvidia-alt || "$build" == victory-corgi || "$build" == belobug ]]; then
+if [[ "$build" == victory-7900xtx || "$build" == nvidia-alt || "$build" == victory-corgi || "$build" == victory-drae || "$build" == belobug ]]; then
     if [[ "$VICTORY_FRAME_RATE" == 0 ]]; then
         default VICTORY_FRAME_INTERVAL_MS 0
     else
@@ -192,7 +195,7 @@ fi
 # white under Proton). In the prologue's cell a frame took 220 to 270 ms
 # instead of 290 to 380 in Series X mode (this checkout, RX 6950 XT).
 console=()
-if [[ "$build" == victory || "$build" == klbf-lab || "$build" == victory-corgi || "$build" == belobug ]]; then
+if [[ "$build" == victory || "$build" == klbf-lab || "$build" == victory-corgi || "$build" == victory-drae || "$build" == belobug ]]; then
     ffx="${XDG_DATA_HOME:-$HOME/.local/share}/victory/fidelityfx"
     sdk="https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v2.4.0/Kits/FidelityFX/signedbin"
     # The SDK 2.4.0 files' SHA-256: a download is kept only if it matches.
