@@ -19,33 +19,35 @@ const CHIP_W: f32 = 200.0;
 const CHIP_H: f32 = 34.0;
 const GAP: f32 = 8.0;
 
+/// The columns follow their dots' height, so the lines fan out instead of
+/// crossing: twelve rows, each box level with the band of dots it serves.
 const LEFT_COLUMN: [&str; 12] = [
     "LT",
     "LB",
-    "LS",
     "LeftStickUp",
-    "LeftStickDown",
-    "LeftStickLeft",
-    "LeftStickRight",
-    "Up",
-    "Down",
-    "Left",
-    "Right",
     "View",
+    "LeftStickRight",
+    "LS",
+    "LeftStickLeft",
+    "LeftStickDown",
+    "Up",
+    "Right",
+    "Left",
+    "Down",
 ];
 const RIGHT_COLUMN: [&str; 12] = [
     "RT",
     "RB",
-    "RS",
-    "RightStickUp",
-    "RightStickDown",
-    "RightStickLeft",
-    "RightStickRight",
-    "A",
+    "Y",
     "B",
     "X",
-    "Y",
     "Start",
+    "A",
+    "RightStickUp",
+    "RightStickRight",
+    "RS",
+    "RightStickLeft",
+    "RightStickDown",
 ];
 
 const INK: Color32 = Color32::from_rgb(31, 36, 48);
