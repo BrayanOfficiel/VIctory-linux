@@ -7,6 +7,7 @@
 #   scripts/base.sh victory-fork    # fxceless/victory-fork: NVIDIA cards
 #   scripts/base.sh victory-7900xtx # avatarmanz/VIctory-7900XTX: AMD cards
 #   scripts/base.sh victory-corgi   # corgansm/victory-corgi: NVIDIA cards
+#   scripts/base.sh belobug         # Belobug/VIctory-Belobug-AMD: AMD cards
 #
 # Each base is fetched at a fixed commit into ~/.cache/victory/bases,
 # patched with scripts/bases/<name>/*.patch (fixes for Proton) and built
@@ -17,13 +18,14 @@
 # System32).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-name="${1:?usage: scripts/base.sh klbf-lab|victory-fork|victory-7900xtx|victory-corgi}"
+name="${1:?usage: scripts/base.sh klbf-lab|victory-fork|victory-7900xtx|victory-corgi|belobug}"
 case "$name" in
     klbf-lab) repo=https://github.com/PastiiJay/klbf-lab commit=3c2dbec66faafe6701d86090d5e7e53957f5c88c ;;
     victory-fork) repo=https://github.com/fxceless/victory-fork commit=085ee7c4c3d1dfaed41d683fa9f465a6f9dac8c3 ;;
     victory-7900xtx) repo=https://github.com/avatarmanz/VIctory-7900XTX commit=a9400a6d62ccc8309dab9a5f38a2eb730ce176aa ;;
     victory-corgi) repo=https://github.com/corgansm/victory-corgi commit=8b6671cc29f491cfb717a796808c47706c46aa9e ;;
-    *) echo "base.sh: unknown base $name (klbf-lab, victory-fork, victory-7900xtx, victory-corgi)" >&2; exit 2 ;;
+    belobug) repo=https://github.com/Belobug/VIctory-Belobug-AMD commit=cd8dfc06ace7ccb91a19431e74bc2d0de2a10145 ;;
+    *) echo "base.sh: unknown base $name (klbf-lab, victory-fork, victory-7900xtx, victory-corgi, belobug)" >&2; exit 2 ;;
 esac
 
 src="${XDG_CACHE_HOME:-$HOME/.cache}/victory/bases/$name-${commit:0:12}"
