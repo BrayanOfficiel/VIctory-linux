@@ -106,6 +106,13 @@ case "$build" in
         ;;
     victory-corgi)
         exe="$("$ROOT/scripts/base.sh" victory-corgi)"
+        # On AMD cards the title's face network (its compute_graph_ops:
+        # matrix products, SiLU, clamps...) gives expressions two to three
+        # times too strong. Its 24 programs are left out unless
+        # VICTORY_FACES=animated: faces then stay neutral and clean.
+        if [[ "$(gpu_vendor)" == amd && "${VICTORY_FACES:-still}" != animated ]]; then
+            default VICTORY_SKIP_PIPELINES "0709e8356abd9082,0aa7934094794dbf,13c8daa0bad76f2a,164a8fa92a2c699f,21e30428bed8410d,2666062bd7f4c95d,305809281f57812f,3d65925d7cd4a39a,5e5d98e4ff3a7cf9,6a04b371a8e26853,6b176df5514d9a3f,7a38ed7f5205f384,7de0f9db96ddd295,7dfd9a07e164f011,918081d4df02c5bc,a06ef09446bd6e70,aaf7da7a94dc72a9,b22a16a178976e1b,d4bc666022520dfd,e4576c6eca0f8ce3,e4d850a7baf18270,e8820cb254b5c681,eb109d093eb4ddbe,f8425d3c03df62a0"
+        fi
         # Its own settings (scripts/play-highram.ps1 there, by default):
         # VIctory-7900XTX's, one recording thread (NVIDIA's capped
         # descriptor pool), every title buffer copied to the card, paired
@@ -193,5 +200,11 @@ if [[ "$build" == victory || "$build" == klbf-lab || "$build" == victory-corgi ]
             console=(--console series-s)
         fi
     fi
+fi
+# VICTORY_DIAG=1: the same build's diagnostics exe, when it was built
+# (cargo xwin build --profile diag --features diagnostics in its folder).
+if [[ "${VICTORY_DIAG:-0}" == 1 ]]; then
+    diag="${exe/\/release\//\/diag\/}"
+    if [[ -f "$diag" ]]; then exe="$diag"; else echo "run.sh: no diagnostics build at $diag" >&2; fi
 fi
 VICTORY_EXE="$exe" exec "$ROOT/scripts/proton-run.sh" run "$title" --execute "${console[@]}" "$@"
