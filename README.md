@@ -27,41 +27,42 @@ scripts/proton-viewtree.sh   # once: a faster Wine server (docs/linux-proton.md)
 ./run.sh /path/to/game
 ```
 
-Or, by card: `./run-amd.sh`, `./run-nvidia.sh` (fxceless's victory-fork)
-or `./run-nvidia-alt.sh` (VIctory-7900XTX with VIctory-NVIDIA's settings),
-each with the same arguments.
+By card, with the same arguments:
+
+| Launcher | Build |
+|---|---|
+| `./run-amd.sh` | corgansm's victory-corgi |
+| `./run-nvidia.sh` | corgansm's victory-corgi |
+| `./run-nvidia-alt.sh` | avatarmanz's VIctory-7900XTX with VIctory-NVIDIA's settings |
 
 `run.sh` takes the folder holding the title's executable, or the executable
-itself. It picks the VIctory build from the graphics card: avatarmanz's
-VIctory-7900XTX on AMD, fxceless's victory-fork on NVIDIA, this checkout's
-elsewhere, or the one `VICTORY_BUILD` names (`victory`, `victory-7900xtx`,
-`klbf-lab`, `victory-fork`). The first run builds it (cargo-xwin then downloads the MSVC
-runtime and the Windows SDK, and accepts their licence). Wine runs in a
-prefix of its own, `~/.local/share/victory/proton`, made on first use.
+itself. It picks the build from the graphics card (victory-corgi on AMD and
+NVIDIA cards, this checkout's elsewhere), or the one `VICTORY_BUILD` names
+(`victory-corgi`, `victory-7900xtx`, `nvidia-alt`, `victory-fork`,
+`klbf-lab`, `victory`). The first run builds it (cargo-xwin then downloads
+the MSVC runtime and the Windows SDK, and accepts their licence). Wine runs
+in a prefix of its own, `~/.local/share/victory/proton`, made on first use.
+Key presses can be scripted for unattended runs (`VICTORY_KEYS`, see
+docs/linux-proton.md).
 
-## Status
+## Status (version 0.1.0)
 
-Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6) and Proton
-Experimental `experimental-11.0-20261112`.
+Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6), 32 GB of
+RAM and Proton Experimental `experimental-11.0-20261112`.
 
-- The title boots, runs its menus at its own 30 frames a second and loads
-  the opening scene.
-- In the prologue's cell, with the Wine server `scripts/proton-viewtree.sh`
-  builds and the Series S mode `run.sh` starts, a frame takes 145 ms (about
-  7 frames a second) with klbf-lab, whose picture at night is dark with
-  magenta patches, and 260 ms (about 4) with this checkout's build, whose
-  picture is right. The opening cutscene, up to 13,000 draws a frame, is
-  much slower. With Steam's Wine server, frames take about five times longer.
-- In the opening scene, VIctory-7900XTX (the build `run.sh` picks on AMD)
-  takes 90 to 185 ms a frame, about 5 to 11 frames a second, with faces
-  right; this checkout's build takes 500 to 1,700 ms and opens every
-  character's mouth wide.
-- This checkout's build draws and lights the world, without ray-traced
-  shadows or reflections, as upstream. On AMD cards this needs RADV's waves
-  of 32 lanes, which the scripts ask for.
-- fxceless's build, picked on NVIDIA cards, has not been run on one here.
-- After about 10 minutes of play the title stops itself when one of its
-  object pools fills up. This also happens on Windows (upstream issue #698).
+- victory-corgi plays the prologue: 8 minutes in the opening scene without
+  a crash or a hang, at a median of 18.5 frames a second (a tenth of the
+  time under 10, at most 27), in Series S mode. Faces, light and textures
+  are right.
+- Known defects, on Windows too: mouths do not move on AMD cards, and trees
+  flicker or vanish in places.
+- On NVIDIA cards victory-corgi has not been run under Linux. Its author
+  measures 19 to 26 frames a second on Windows, with moving mouths.
+- With 32 GB of RAM the title swaps in its busiest scenes, and the frame
+  rate drops for a few seconds. 64 GB are recommended by the builds'
+  authors.
+- Menus and videos run at 60 frames a second with VIctory-7900XTX, at 30
+  with victory-corgi.
 - A PlayStation pad (DualSense) works as an XInput pad, with the Xbox
   buttons' names in the title.
 
@@ -71,8 +72,9 @@ Experimental `experimental-11.0-20261112`.
   Proton or the system's Wine with vkd3d-proton and DXVK.
 - `scripts/proton-viewtree.sh`, which builds Proton's Wine server with a
   process's memory views in a tree: world frames about five times faster.
-- `scripts/base.sh`, which builds the community's fastest VIctory for the
-  card (VIctory-7900XTX, fxceless's victory-fork) with fixes for Proton.
+- `scripts/base.sh`, which builds the community's best VIctory builds
+  (victory-corgi, VIctory-7900XTX, fxceless's victory-fork) with fixes for
+  Proton, and `run-amd.sh`, `run-nvidia.sh`, `run-nvidia-alt.sh`.
 - `scripts/vkd3d-proton-master.sh`, which fetches vkd3d-proton master for
   its dxil-spirv fix.
 - Fixes for Wine and vkd3d-proton: VIctory's own shaders build with Wine's
@@ -86,7 +88,9 @@ Experimental `experimental-11.0-20261112`.
   #1014 and #1737.
 - The test suite runs under Wine.
 - `VICTORY_FRAME_RATE`, which sets the rate the title's frames are paced
-  at, or lifts that cap (`0`).
+  at (60 by default in `run.sh`), or lifts that cap (`0`).
+- In the crash report, the state of the title's object pools when one runs
+  out (upstream issue #698).
 
 [docs/linux-proton.md](docs/linux-proton.md) has the details: requirements,
 building, running, tests and the known differences with Windows.
