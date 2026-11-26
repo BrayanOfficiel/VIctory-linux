@@ -18,39 +18,28 @@ use egui::{
 const CHIP_W: f32 = 200.0;
 const CHIP_H: f32 = 34.0;
 const GAP: f32 = 8.0;
+/// The air between a row and the pad's picture.
+const ROW_PAD: f32 = 10.0;
 
-/// The columns follow their dots' height, so the lines fan out instead of
-/// crossing: twelve rows, each box level with the band of dots it serves.
-/// The four back buttons lead each side, then View and Start: their dots
-/// sit inside the pad, and the lines reach them over the sticks' band.
-const LEFT_COLUMN: [&str; 12] = [
-    "LT",
-    "LB",
-    "View",
-    "LeftStickUp",
-    "LeftStickRight",
-    "LS",
-    "LeftStickLeft",
-    "LeftStickDown",
-    "Up",
-    "Right",
+/// The back buttons and the two middle pads sit in a row above the picture,
+/// the d-pad and the right stick's directions in a row below; the sticks'
+/// click and the face buttons keep the columns at the sides. Every group
+/// runs in its dots' order along the row or column, so the lines fan out
+/// without crossing: the rows by dot x, the columns by dot y.
+const TOP_ROW: [&str; 6] = ["LB", "LT", "View", "Start", "RT", "RB"];
+const BOTTOM_ROW: [&str; 8] = [
     "Left",
+    "Up",
     "Down",
-];
-const RIGHT_COLUMN: [&str; 12] = [
-    "RT",
-    "RB",
-    "Start",
-    "Y",
-    "B",
-    "X",
-    "A",
-    "RightStickUp",
-    "RightStickRight",
-    "RS",
+    "Right",
     "RightStickLeft",
     "RightStickDown",
+    "RightStickUp",
+    "RightStickRight",
 ];
+const LEFT_COLUMN: [&str; 5] =
+    ["LeftStickUp", "LeftStickRight", "LS", "LeftStickLeft", "LeftStickDown"];
+const RIGHT_COLUMN: [&str; 5] = ["Y", "B", "X", "A", "RS"];
 
 const INK: Color32 = Color32::from_rgb(31, 36, 48);
 const GRAY: Color32 = Color32::from_rgb(122, 129, 140);
@@ -126,12 +115,29 @@ impl Editor {
     /// The boxes for this frame: name, rectangle, dot.
     fn chips(panel: Rect, image: Rect, scale: f32) -> Vec<(&'static str, Rect, Pos2)> {
         let mut out = Vec::with_capacity(ACTIONS.len());
+        // The rows: boxes share the panel's width, in their dots' order.
+        for (names, top) in [
+            (&TOP_ROW[..], panel.min.y + ROW_PAD),
+            (&BOTTOM_ROW[..], panel.max.y - CHIP_H - ROW_PAD),
+        ] {
+            let n = names.len() as f32;
+            let w = ((panel.width() - 24.0 - (n - 1.0) * GAP) / n).min(CHIP_W);
+            let total = n * w + (n - 1.0) * GAP;
+            let mut x = panel.center().x - total / 2.0;
+            for name in names {
+                let r = Rect::from_min_max(pos2(x, top), pos2(x + w, top + CHIP_H));
+                out.push((*name, r, Self::anchor(image, scale, name)));
+                x += w + GAP;
+            }
+        }
+        // The columns: five boxes, centered beside the pad.
+        let top0 = image.center().y - (5.0 * (CHIP_H + GAP) - GAP) / 2.0;
         for (names, x) in [
             (&LEFT_COLUMN[..], panel.min.x + 12.0),
             (&RIGHT_COLUMN[..], panel.max.x - 12.0 - CHIP_W),
         ] {
             for (row, name) in names.iter().enumerate() {
-                let top = image.min.y + row as f32 * (CHIP_H + GAP);
+                let top = top0 + row as f32 * (CHIP_H + GAP);
                 let r = Rect::from_min_max(pos2(x, top), pos2(x + CHIP_W, top + CHIP_H));
                 out.push((*name, r, Self::anchor(image, scale, name)));
             }
@@ -223,14 +229,15 @@ impl eframe::App for Editor {
             let panel = ui.max_rect();
             let (response, painter) = ui.allocate_painter(panel.size(), Sense::click());
 
-            // The pad, scaled to fit between the columns.
+            // The pad, scaled to fit between the columns and the rows.
             let avail_w = panel.width() - 2.0 * (CHIP_W + 24.0);
-            let avail_h = panel.height() - 16.0;
+            let avail_h = panel.height() - 2.0 * (CHIP_H + 2.0 * ROW_PAD);
             let scale = (avail_w / 1254.0).min(avail_h / 1254.0);
             let side = 1254.0 * scale;
+            let top = panel.min.y + CHIP_H + 2.0 * ROW_PAD + (avail_h - side) / 2.0;
             let image = Rect::from_min_max(
-                pos2(panel.center().x - side / 2.0, panel.min.y + 8.0),
-                pos2(panel.center().x + side / 2.0, panel.min.y + 8.0 + side),
+                pos2(panel.center().x - side / 2.0, top),
+                pos2(panel.center().x + side / 2.0, top + side),
             );
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
             painter.image(self.texture.id(), image, uv, Color32::WHITE);
@@ -285,14 +292,22 @@ impl eframe::App for Editor {
                     );
                 }
 
-                // The line: out of the chip's inner edge, then to the dot.
-                let left_side = chip.center().x < panel.center().x;
-                let inner = if left_side {
-                    pos2(chip.max.x, chip.center().y)
+                // The line: out of the edge facing the pad, then to the dot.
+                let (inner, elbow) = if chip.max.y <= image.min.y {
+                    let i = pos2(chip.center().x, chip.max.y);
+                    (i, pos2(i.x, i.y + 24.0))
+                } else if chip.min.y >= image.max.y {
+                    let i = pos2(chip.center().x, chip.min.y);
+                    (i, pos2(i.x, i.y - 24.0))
                 } else {
-                    pos2(chip.min.x, chip.center().y)
+                    let left_side = chip.center().x < panel.center().x;
+                    let i = if left_side {
+                        pos2(chip.max.x, chip.center().y)
+                    } else {
+                        pos2(chip.min.x, chip.center().y)
+                    };
+                    (i, pos2(i.x + if left_side { 24.0 } else { -24.0 }, i.y))
                 };
-                let elbow = pos2(inner.x + if left_side { 24.0 } else { -24.0 }, inner.y);
                 let color = if flashing {
                     FLASH
                 } else if selected {
