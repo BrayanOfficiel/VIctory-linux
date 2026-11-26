@@ -20,7 +20,7 @@ name="${1:?usage: scripts/base.sh klbf-lab|victory-fork|victory-7900xtx}"
 case "$name" in
     klbf-lab) repo=https://github.com/PastiiJay/klbf-lab commit=3c2dbec66faafe6701d86090d5e7e53957f5c88c ;;
     victory-fork) repo=https://github.com/fxceless/victory-fork commit=085ee7c4c3d1dfaed41d683fa9f465a6f9dac8c3 ;;
-    victory-7900xtx) repo=https://github.com/avatarmanz/VIctory-7900XTX commit=0dec5dcc228b6e0b7540d170c2dcd7d52e6d0b99 ;;
+    victory-7900xtx) repo=https://github.com/avatarmanz/VIctory-7900XTX commit=a9400a6d62ccc8309dab9a5f38a2eb730ce176aa ;;
     *) echo "base.sh: unknown base $name (klbf-lab, victory-fork, victory-7900xtx)" >&2; exit 2 ;;
 esac
 

@@ -1,8 +1,8 @@
 diff --git a/crates/victory-gpu/src/pipeline/library.rs b/crates/victory-gpu/src/pipeline/library.rs
-index a7e974b..54ddbbb 100644
+index 2ca115f..f9cfca7 100644
 --- a/crates/victory-gpu/src/pipeline/library.rs
 +++ b/crates/victory-gpu/src/pipeline/library.rs
-@@ -461,10 +461,23 @@ fn library() -> Option<&'static Library> {
+@@ -462,10 +462,23 @@ fn library() -> Option<&'static Library> {
  /// adapter or driver change, damage).
  fn open(device: &ID3D12Device1, blob: Blob) -> Option<Library> {
      let make = |bytes: &[u8]| -> windows::core::Result<ID3D12PipelineLibrary1> {
