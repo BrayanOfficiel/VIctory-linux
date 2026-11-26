@@ -1,0 +1,82 @@
+diff --git a/crates/victory-gpu/src/draw.rs b/crates/victory-gpu/src/draw.rs
+index ca59f5b..597089d 100644
+--- a/crates/victory-gpu/src/draw.rs
++++ b/crates/victory-gpu/src/draw.rs
+@@ -4302,7 +4302,7 @@ fn readable(list: &HostList, kind: ResourceType, view: &View) {
+             // a texture the host writes: that texture's texels, copied on
+             // the host (title memory does not have them).
+             let aliased = crate::resource::alias_of(*resource as This)
+-                .is_some_and(|source| crate::texture::alias(list, *resource as This, source));
++                .is_some_and(|source| crate::texture::alias(list, *resource as This, source.get()));
+             if !aliased
+                 && let Some(t) = crate::resource::host_copy(*resource as This)
+                 && t.flags() & 0x7 == 0
+diff --git a/crates/victory-gpu/src/object.rs b/crates/victory-gpu/src/object.rs
+index 6671d4b..af1e794 100644
+--- a/crates/victory-gpu/src/object.rs
++++ b/crates/victory-gpu/src/object.rs
+@@ -71,6 +71,15 @@ pub(crate) extern "system" fn add_ref(this: This) -> u32 {
+     unsafe { &*this }.refs.fetch_add(1, Ordering::Relaxed) + 1
+ }
+ 
++/// Adds a reference to an object that has one; false if it has none any
++/// more (its last one is being released). From fxceless's victory-fork.
++#[cfg(windows)]
++pub(crate) fn add_ref_alive(this: This) -> bool {
++    // SAFETY: `this` is one of our objects, not freed yet.
++    let refs = &unsafe { &*this }.refs;
++    refs.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n > 0).then(|| n + 1)).is_ok()
++}
++
+ pub(crate) extern "system" fn release(this: This) -> u32 {
+     // SAFETY: `this` is one of our objects.
+     let refs = &unsafe { &*this }.refs;
+diff --git a/crates/victory-gpu/src/resource.rs b/crates/victory-gpu/src/resource.rs
+index 4608e1e..b8479e7 100644
+--- a/crates/victory-gpu/src/resource.rs
++++ b/crates/victory-gpu/src/resource.rs
+@@ -1413,8 +1413,27 @@ static TARGETS_AT: std::sync::Mutex<std::collections::BTreeMap<u64, usize>> =
+ /// all zeros from a first stage that held light (run 88).
+ /// `VICTORY_ALIAS_COPY=0`: none is found, as before; `=1`: only textures
+ /// of one level and one layer, as at first.
++/// A title texture held alive while the host copies it ([`alias_of`]).
+ #[cfg(windows)]
+-pub(crate) fn alias_of(this: This) -> Option<This> {
++pub(crate) struct Held(This);
++
++#[cfg(windows)]
++impl Held {
++    /// The texture the handle keeps alive.
++    pub(crate) fn get(&self) -> This {
++        self.0
++    }
++}
++
++#[cfg(windows)]
++impl Drop for Held {
++    fn drop(&mut self) {
++        crate::object::release_boxed::<Resource>(self.0);
++    }
++}
++
++#[cfg(windows)]
++pub(crate) fn alias_of(this: This) -> Option<Held> {
+     use std::sync::atomic::Ordering::Relaxed;
+     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+     if this.is_null()
+@@ -1475,7 +1494,14 @@ pub(crate) fn alias_of(this: This) -> Option<This> {
+             );
+         }
+     }
+-    same.then_some(other)
++    // Pinned under the lock (fxceless's victory-fork #1336): once it is let
++    // go, the title can drop its last reference, and the caller's alias copy
++    // would read freed memory, or the next texture made at the same address
++    // (faces and shirts drawn with another texture's blocks).
++    if !same || !crate::object::add_ref_alive(other) {
++        return None;
++    }
++    Some(Held(other))
+ }
+ 
+ /// Whether host copies are made on first use. On by default;
