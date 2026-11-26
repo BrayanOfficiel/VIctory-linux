@@ -167,6 +167,17 @@ if [[ -z "${VICTORY_VKD3D_DIR+x}" ]] && ! "$ROOT/scripts/vkd3d-proton-master.sh"
     echo "run.sh: vkd3d-proton master is missing (no network?): pipelines may stop being made" >&2
 fi
 
+# VICTORY_DRIVER=amdvlk: AMD's own Vulkan driver instead of RADV
+# (scripts/amdvlk.sh), the one the title's face animation is right on.
+if [[ "${VICTORY_DRIVER:-}" == amdvlk ]]; then
+    if icd="$("$ROOT/scripts/amdvlk.sh")"; then
+        export VK_DRIVER_FILES="$icd"
+        echo "run.sh: Vulkan driver: AMDVLK" >&2
+    else
+        echo "run.sh: AMDVLK could not be fetched: staying on the system's driver" >&2
+    fi
+fi
+
 # Series S mode unless --console is given, for the builds that hand the
 # title's upscaling to AMD FidelityFX on the host: the title renders at
 # 1280x720 and upscales with the PC build of AMD's SDK (the console's draws
