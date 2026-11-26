@@ -1692,6 +1692,21 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// The shipped example must stay spellable by the parser: a rename of
+    /// some action that skipped the example would otherwise teach users a
+    /// format that warns on every line.
+    #[test]
+    fn the_example_conf_parses_clean() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../keybinds.example.conf");
+        let text = std::fs::read_to_string(path).expect("the example conf ships with the repo");
+        let (map, warns) = Mapping::load(&text);
+        assert!(warns.is_empty(), "example conf warns: {warns:?}");
+        // The full stand-in pad: 14 button bindings and every analog bound.
+        assert_eq!(map.buttons.len(), 14);
+        assert_eq!(map.left_up, b'W');
+        assert_eq!(map.right_trigger, b'C');
+    }
+
     fn slot<F: Copy, T>(object: *const T, offset: usize) -> F {
         // SAFETY: our objects start with their table, which has the slot.
         let f = unsafe { *(*(object as *const *const *const ())).add(offset / 8) };
