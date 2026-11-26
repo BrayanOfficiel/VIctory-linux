@@ -27,6 +27,10 @@ scripts/proton-viewtree.sh   # once: a faster Wine server (docs/linux-proton.md)
 ./run.sh /path/to/game
 ```
 
+Or, by card: `./run-amd.sh`, `./run-nvidia.sh` (fxceless's victory-fork)
+or `./run-nvidia-alt.sh` (VIctory-7900XTX with VIctory-NVIDIA's settings),
+each with the same arguments.
+
 `run.sh` takes the folder holding the title's executable, or the executable
 itself. It picks the VIctory build from the graphics card: avatarmanz's
 VIctory-7900XTX on AMD, fxceless's victory-fork on NVIDIA, this checkout's

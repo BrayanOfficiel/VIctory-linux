@@ -57,7 +57,7 @@ if [[ -z "$build" ]]; then
         *) build=victory ;;
     esac
 fi
-echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, klbf-lab or victory-fork)" >&2
+echo "run.sh: VIctory build: $build (VICTORY_BUILD=victory, victory-7900xtx, nvidia-alt, klbf-lab or victory-fork)" >&2
 
 # A variable's value unless it is set already.
 default() {
@@ -87,7 +87,7 @@ case "$build" in
         default VICTORY_CARD_BUFFERS_MB 1024
         default VICTORY_RADV_WAVE32 0
         ;;
-    victory-7900xtx)
+    victory-7900xtx | nvidia-alt)
         exe="$("$ROOT/scripts/base.sh" victory-7900xtx)"
         # Its own settings (scripts/play.ps1 there, without -Safe).
         for setting in TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1 \
@@ -96,6 +96,14 @@ case "$build" in
             THIN=1 JOIN_PARTS=8 UPLOAD_AHEAD=1; do
             default "VICTORY_${setting%%=*}" "${setting#*=}"
         done
+        if [[ "$build" == nvidia-alt ]]; then
+            # The same build on NVIDIA cards, with trustno1-coder's
+            # VIctory-NVIDIA settings: more dynamic slots on a view heap
+            # capped at 1,000,000 views (patch 06), and card buffers.
+            for setting in DYNAMIC_SLOTS=524288 CARD_BUFFERS_MIN_MB=1 CARD_BUFFERS_MB=1536; do
+                default "VICTORY_${setting%%=*}" "${setting#*=}"
+            done
+        fi
         ;;
     victory-fork)
         exe="$("$ROOT/scripts/base.sh" victory-fork)"
@@ -115,7 +123,7 @@ export VICTORY_NO_WATCHDOG="${VICTORY_NO_WATCHDOG-1}"
 # VIctory-7900XTX takes an interval and gives the title the same rate, so
 # its game time follows.
 export VICTORY_FRAME_RATE="${VICTORY_FRAME_RATE-60}"
-if [[ "$build" == victory-7900xtx ]]; then
+if [[ "$build" == victory-7900xtx || "$build" == nvidia-alt ]]; then
     if [[ "$VICTORY_FRAME_RATE" == 0 ]]; then
         default VICTORY_FRAME_INTERVAL_MS 0
     else

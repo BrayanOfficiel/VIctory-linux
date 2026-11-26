@@ -59,10 +59,12 @@ with `scripts/proton-run.sh`.
 |---|---|---|
 | AMD | `victory-7900xtx` | avatarmanz/VIctory-7900XTX, first on AMD in the community's rankings |
 | NVIDIA | `victory-fork` | fxceless/victory-fork, the reference build for NVIDIA |
+| NVIDIA, the alternative | `nvidia-alt` | VIctory-7900XTX with the settings of trustno1-coder/VIctory-NVIDIA (more dynamic descriptor slots on NVIDIA's heap of 1,000,000 views, card buffers) |
 | Other | `victory` | this checkout |
 
 `klbf-lab` (PastiiJay/klbf-lab), the AMD build before it, stays available
-by name.
+by name. `run-amd.sh`, `run-nvidia.sh` and `run-nvidia-alt.sh` run `run.sh` with
+the first three. `nvidia-alt` has not been run on an NVIDIA card here.
 
 `scripts/base.sh` fetches the community builds at a fixed commit into
 `~/.cache/victory/bases`, applies the fixes for Proton in
