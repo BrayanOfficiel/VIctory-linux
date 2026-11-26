@@ -45,23 +45,29 @@ in a prefix of its own, `~/.local/share/victory/proton`, made on first use.
 Key presses can be scripted for unattended runs (`VICTORY_KEYS`, see
 docs/linux-proton.md).
 
-## Status (version 0.1.1)
+## Status (version 0.1.2)
 
 Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6), 32 GB of
 RAM and Proton Experimental `experimental-11.0-20261112`.
 
-- victory-corgi plays the prologue up to the first package without a crash
-  or a hang, at a median of 18.3 frames a second (a tenth of the time under
-  15.6, at most 25.6), in Series S mode. Faces, light and textures are
-  right, and mouths move, a little too much.
+- victory-corgi plays the prologue without a crash or a hang, at a median
+  of 20.6 frames a second in game (a tenth of the time under 15.0), in
+  Series S mode. Faces, their animation, clothes, light and textures are
+  right.
+- On AMD cards `run.sh` keeps vkd3d-proton off its descriptor heap
+  (`VKD3D_CONFIG=no_descriptor_heap`): on RADV that path gives the title's
+  facial animation two to three times too strong expressions, and some
+  clothes come out black. `VICTORY_DESCRIPTOR_HEAP=1` keeps the heap.
 - Known defect, on Windows too: trees flicker or vanish in places.
-- On NVIDIA cards victory-corgi has not been run under Linux. Its author
-  measures 19 to 26 frames a second on Windows, with moving mouths.
+- On NVIDIA cards (an RTX 5060 Ti under Linux) the picture is right with
+  victory-corgi's NVIDIA settings, which `run.sh` now picks there. The
+  first entry into the world compiles shaders for a few minutes. Copies
+  are slow without Resizable BAR: turn on "Above 4G Decoding" and
+  "Re-Size BAR Support" in the firmware settings.
 - With 32 GB of RAM the title swaps in its busiest scenes, and the frame
   rate drops for a few seconds. 64 GB are recommended by the builds'
   authors.
-- Menus and videos run at 60 frames a second with VIctory-7900XTX, at 30
-  with victory-corgi.
+- Menus and videos run at 60 frames a second.
 - A PlayStation pad (DualSense) works as an XInput pad, with the Xbox
   buttons' names in the title.
 
@@ -75,7 +81,10 @@ RAM and Proton Experimental `experimental-11.0-20261112`.
   (victory-corgi, VIctory-7900XTX, fxceless's victory-fork) with fixes for
   Proton, and `run-amd.sh`, `run-nvidia.sh`, `run-nvidia-alt.sh`.
 - `scripts/vkd3d-proton-master.sh`, which fetches vkd3d-proton master for
-  its dxil-spirv fix.
+  its dxil-spirv fix (from this repository's `vkd3d-proton-master` release
+  when the GitHub CLI is not signed in).
+- `scripts/amdvlk.sh` and `VICTORY_DRIVER=amdvlk`, which run the title on
+  AMD's own Vulkan driver, without installing it.
 - Fixes for Wine and vkd3d-proton: VIctory's own shaders build with Wine's
   HLSL compiler, an empty pipeline library is asked for with a null blob,
   each translated program returns from one block (dxil-spirv cannot
