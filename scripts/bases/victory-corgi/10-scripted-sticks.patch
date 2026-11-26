@@ -1,0 +1,35 @@
+diff --git a/crates/victory-hle/src/modules/gameinput.rs b/crates/victory-hle/src/modules/gameinput.rs
+index 7bce73b..bbe7b83 100644
+--- a/crates/victory-hle/src/modules/gameinput.rs
++++ b/crates/victory-hle/src/modules/gameinput.rs
+@@ -1198,11 +1198,29 @@ mod host {
+             // connected the stand-in is not there, and a title that listens
+             // to the pad (the title's start screen) saw nothing.
+             if slot == 0 {
+-                for vk in scripted() {
++                let script = scripted();
++                for &vk in &script {
+                     if let Some(&(_, button)) = super::FALLBACK_BUTTONS.iter().find(|(key, _)| *key == vk) {
+                         pad.buttons |= button;
+                     }
+                 }
++                // The scripted sticks too, by the stand-in's keys (W/A/S/D
++                // the left one, I/J/K/L the right one): a scripted walk with
++                // a real pad connected. An axis no scripted key holds keeps
++                // the pad's own.
++                let axis = |plus: u8, minus: u8| {
++                    f32::from(u8::from(script.contains(&plus))) - f32::from(u8::from(script.contains(&minus)))
++                };
++                for (value, own) in [
++                    (axis(b'D', b'A'), &mut pad.left_x),
++                    (axis(b'W', b'S'), &mut pad.left_y),
++                    (axis(b'L', b'J'), &mut pad.right_x),
++                    (axis(b'I', b'K'), &mut pad.right_y),
++                ] {
++                    if value != 0.0 {
++                        *own = value;
++                    }
++                }
+             }
+             Some(pad)
+         }
