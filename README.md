@@ -114,7 +114,10 @@ the d-pad, Esc and Tab on Menu and View) live in `keybinds.conf`. Copy
 hands it to the game; `VICTORY_KEYBINDS` names another file, and one
 next to the executable works too), and edit it while the game runs:
 changes are picked up within a second, and a bad line only warns. A
-plugged-in gamepad always wins over the stand-in.
+plugged-in gamepad always wins over the stand-in. `./run-editor.sh` draws
+the pad with a clickable box per binding: select one, press the key, the
+file is written and the running game re-reads it. The editor lives in
+`apps/keybinds-editor`, and every `keybinds.conf` stays in this folder.
 
 ## Status (version 0.1.2)
 
