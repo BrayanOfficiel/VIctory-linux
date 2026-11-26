@@ -56,9 +56,8 @@ RAM and Proton Experimental `experimental-11.0-20261112`.
   right.
 - On AMD cards `run.sh` keeps vkd3d-proton off its descriptor heap
   (`VKD3D_CONFIG=no_descriptor_heap`): on RADV that path gives the title's
-  facial animation two to three times too strong expressions, and some
-  clothes come out black. `VICTORY_DESCRIPTOR_HEAP=1` keeps the heap.
-- Known defect, on Windows too: trees flicker or vanish in places.
+  facial animation two to three times too strong expressions, some
+  clothes come out black and trees flicker. `VICTORY_DESCRIPTOR_HEAP=1` keeps the heap.
 - On NVIDIA cards (an RTX 5060 Ti under Linux) the picture is right with
   victory-corgi's NVIDIA settings, which `run.sh` now picks there. The
   first entry into the world compiles shaders for a few minutes. Copies
