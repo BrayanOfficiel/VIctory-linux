@@ -117,7 +117,7 @@ case "$build" in
         # results fetched in flight checked: more card and host memory).
         # VICTORY_PROFILE=nvidia or highram picks one.
         profile="${VICTORY_PROFILE:-$([[ "$(gpu_vendor)" == nvidia ]] && echo nvidia || echo highram)}"
-        common="TEXTURE_NO_WAIT=1 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1
+        common="TEXTURE_NO_WAIT=0 RELAY=2 WIDE_BACK=1 CARD_REHASH_RUNS=1 JOIN_COPIES=1
             INDIRECT_WINDOW=1 RELAY_COPY=1 CARD_STEPS=2 INDIRECT_BATCH=2 MAP_THREADS=1
             TITLE_PRIORITIES=0 CARD_AWAKE=1 SHOW_AFTER=1 AMBIENT=0.8 D3D12_DRED=light
             SKIP_PIPELINES=none JOIN_PARTS=8 UPLOAD_AHEAD=1 PIPELINE_WAIT_MS=10000
