@@ -40,6 +40,9 @@
 *.exp
 *.ilk
 
+# Logs
+*.log
+
 # Console packages and containers
 *.xvd
 *.xvc
