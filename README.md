@@ -56,8 +56,8 @@ their rendered rate is close to the figures below.
 
 | Graphics card | Processor | RAM | Result |
 |---|---|---|---|
-| AMD RX 6950 XT, 16 GB (RDNA 2), Mesa 26.2.6 | Ryzen 9 7900X, 24 threads | 32 GB DDR5 | 19 to 21 fps median while moving (prologue, boat), 28 to 30 in cutscenes, no crash over a night of runs |
-| NVIDIA RTX 5060 Ti, 16 GB, driver 620.70.6, Resizable BAR on | Core i5-14600KF, 6 P-cores and 8 E-cores, 20 threads | DDR5 | about 13 fps median in the prison |
+| AMD RX 6950 XT, 16 GB (RDNA 2), Mesa 26.2.6 | Ryzen 9 7900X, 24 threads | 32 GB DDR5 | 22 to 24 fps median while moving (prologue, boat), 28 to 30 in cutscenes; 40 minutes of play without a crash at 22.6 fps median |
+| NVIDIA RTX 5060 Ti, 16 GB, driver 620.70.6, Resizable BAR on | Core i5-14600KF, 6 P-cores and 8 E-cores, 20 threads | 32 GB DDR5 | 15 to 17 fps median in the prison, peaks at 26 |
 | Same, Resizable BAR off | same | same | 1.5 to 3.4 fps |
 
 For comparison, the fastest Windows builds measure 21 fps median on an RTX
@@ -89,8 +89,12 @@ memory.
 
 ### Before asking
 
+- Run `scripts/proton-viewtree.sh` once. Without its Wine server, Steam's is
+  used and world frames are several times slower (5 fps against 15 on an
+  RTX 5060 Ti); `proton-run.sh` says which one runs.
 - The first entry into the world builds the shaders: a few minutes at 0 to 1
-  fps, once. Later launches load them from the cache.
+  fps, once, and again after an update. Frame rates are too high and the
+  picture incomplete until the log's frame line says `(0 being made)`.
 - Models and textures stay in low detail for about ten seconds after
   loading, then sharpen: the title streams them in.
 - Turn on Resizable BAR ("Above 4G Decoding" and "Re-Size BAR Support" in
