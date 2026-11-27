@@ -38,8 +38,12 @@ if [[ -z "${PROTON:-}" ]]; then
             echo "proton-run.sh: Proton Experimental changed since $viewtree was made," \
                  "run scripts/proton-viewtree.sh again (Steam's Proton is used meanwhile)" >&2
         fi
+    elif [[ -n "${PROTON:-}" ]]; then
+        echo "proton-run.sh: no faster Wine server yet, Steam's is used: world frames" \
+             "are several times slower; run scripts/proton-viewtree.sh once" >&2
     fi
 fi
+echo "proton-run.sh: Proton: ${PROTON:-none}" >&2
 if [[ -z "${PROTON:-}" || ! -x "$PROTON/files/bin/wine" ]]; then
     echo "Proton not found: install Proton Experimental in Steam or set PROTON" >&2
     exit 1
