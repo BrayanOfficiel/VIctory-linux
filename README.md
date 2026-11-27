@@ -119,6 +119,9 @@ the pad with a clickable box per binding: select one, press the key, the
 file is written and the running game re-reads it. The editor lives in
 `apps/keybinds-editor`, and every `keybinds.conf` stays in this folder.
 
+![The keybinds editor: the pad drawn with one box per binding, lines wired
+to the control each box writes](docs/keybinds-editor.png)
+
 ## Status (version 0.1.2)
 
 Tested on CachyOS with an AMD RX 6950 XT (RADV, Mesa 26.2.6), 32 GB of
