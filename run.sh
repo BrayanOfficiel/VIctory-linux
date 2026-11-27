@@ -133,6 +133,13 @@ case "$build" in
         for setting in $common $own; do
             default "VICTORY_${setting%%=*}" "${setting#*=}"
         done
+        # victory-corgi's menu of live settings (render scale, ambient light,
+        # card memory, ray tracing...), over the game's top right corner,
+        # shown and hidden with F8. The render scale chosen there holds from
+        # the next start (the file outlives the run); VICTORY_LIVE_FILE= off.
+        if [[ "$build" == victory-corgi ]]; then
+            default VICTORY_LIVE_FILE "${XDG_DATA_HOME:-$HOME/.local/share}/victory/live-settings.txt"
+        fi
         ;;
     victory-fork)
         exe="$("$ROOT/scripts/base.sh" victory-fork)"
