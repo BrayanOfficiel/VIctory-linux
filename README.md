@@ -180,6 +180,9 @@ RAM and Proton Experimental `experimental-11.0-20261112`.
 - In the crash report, the state of the title's object pools when one runs
   out (upstream issue #698).
 
+[docs/benchmarks.md](docs/benchmarks.md) gives the method and the series behind
+the frame rates above.
+
 [docs/linux-proton.md](docs/linux-proton.md) has the details: requirements,
 building, running, tests and the known differences with Windows.
 
