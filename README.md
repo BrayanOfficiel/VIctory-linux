@@ -104,6 +104,23 @@ memory.
   is installed.
 - Known defect: now and then a character's face or clothes show blocks of
   another texture, mostly right after loading.
+## Keyboard fallback
+
+With no gamepad connected the keyboard stands in as one pad. The default
+keys (W A S D and I J K L for the sticks, Enter Backspace X Y on the face,
+Q E Z C on the shoulders and triggers, F H on the stick clicks, arrows on
+the d-pad, Esc and Tab on Menu and View) live in `keybinds.conf`. Copy
+`keybinds.example.conf` to `keybinds.conf` in this folder (`run.sh`
+hands it to the game; `VICTORY_KEYBINDS` names another file, and one
+next to the executable works too), and edit it while the game runs:
+changes are picked up within a second, and a bad line only warns. A
+plugged-in gamepad always wins over the stand-in. `./run-editor.sh` draws
+the pad with a clickable box per binding: select one, press the key, the
+file is written and the running game re-reads it. The editor lives in
+`apps/keybinds-editor`, and every `keybinds.conf` stays in this folder.
+
+![The keybinds editor: the pad drawn with one box per binding, lines wired
+to the control each box writes](docs/keybinds-editor.png)
 
 ## Status (version 0.1.2)
 

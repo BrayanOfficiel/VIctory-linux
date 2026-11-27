@@ -66,10 +66,10 @@ case "$build" in
     victory)
         target="${CARGO_TARGET_DIR:-$ROOT/target}"
         exe="$target/x86_64-pc-windows-msvc/release/victory.exe"
-        if [[ ! -f "$exe" ]]; then
-            echo "run.sh: building VIctory (release) first" >&2
-            (cd "$ROOT" && XWIN_ACCEPT_LICENSE=1 cargo xwin build --release -p victory --target x86_64-pc-windows-msvc)
-        fi
+        # Build every time: cargo does nothing when nothing changed, and a
+        # stale exe here silently drops features (keybinds.conf first).
+        echo "run.sh: building VIctory (release) if needed" >&2
+        (cd "$ROOT" && XWIN_ACCEPT_LICENSE=1 cargo xwin build --release -p victory --target x86_64-pc-windows-msvc)
         ;;
     klbf-lab)
         exe="$("$ROOT/scripts/base.sh" klbf-lab)"
@@ -236,5 +236,11 @@ fi
 if [[ "${VICTORY_DIAG:-0}" == 1 ]]; then
     diag="${exe/\/release\//\/diag\/}"
     if [[ -f "$diag" ]]; then exe="$diag"; else echo "run.sh: no diagnostics build at $diag" >&2; fi
+fi
+# The stand-in pad's keys: a `keybinds.conf` in this folder (copy
+# `keybinds.example.conf`) is passed to the game when VICTORY_KEYBINDS
+# says nothing. Edit it while the title runs; changes land within a second.
+if [[ -z "${VICTORY_KEYBINDS:-}" && -f "$ROOT/keybinds.conf" ]]; then
+    export VICTORY_KEYBINDS="$ROOT/keybinds.conf"
 fi
 VICTORY_EXE="$exe" exec "$ROOT/scripts/proton-run.sh" run "$title" --execute "${console[@]}" "$@"
