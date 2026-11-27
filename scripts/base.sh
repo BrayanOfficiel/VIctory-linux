@@ -42,7 +42,13 @@ if [[ "$(cat "$src/.prepared" 2>/dev/null)" != "$want" ]]; then
         rm -rf "${src:?}"
         mkdir -p "$src"
         git -C "$src" init -q
-        git -C "$src" fetch -q --depth 1 "$repo" "$commit"
+        # GitHub first, then git.gtahub.st's mirror of it (forks get taken
+        # down: VIctory-7900XTX and VIctory-Belobug-AMD on 2026-11-27).
+        mirror="https://git.gtahub.st/github/$(basename "$(dirname "$repo")")--$(basename "$repo")"
+        if ! GIT_TERMINAL_PROMPT=0 git -C "$src" fetch -q --depth 1 "$repo" "$commit"; then
+            echo "base.sh: $repo is not there, trying its mirror $mirror" >&2
+            GIT_TERMINAL_PROMPT=0 git -C "$src" fetch -q --depth 1 "$mirror" "$commit"
+        fi
         git -C "$src" checkout -q FETCH_HEAD
     else
         echo "base.sh: applying $name's patches again" >&2
