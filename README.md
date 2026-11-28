@@ -108,6 +108,79 @@ memory.
   is installed.
 - Known defect: now and then a character's face or clothes show blocks of
   another texture, mostly right after loading.
+
+## Settings
+
+`run.sh` sets the variables below for victory-corgi. Each one set in front
+of the launcher wins over the default (`VICTORY_RENDER_SCALE=0.75
+./run-nvidia.sh ...`). The profile follows the card: `highram` on AMD
+cards, `nvidia` on NVIDIA cards, or the one `VICTORY_PROFILE` names. The
+effects listed are the ones measured here. Without a measurement, the value
+is victory-corgi's own.
+
+### Launcher and Wine
+
+| Variable | AMD | NVIDIA | What it does, and what was measured |
+|---|---|---|---|
+| `VICTORY_BUILD` | victory-corgi | victory-corgi | The build: `victory-corgi`, `victory-7900xtx`, `nvidia-alt`, `victory-drae`, `belobug`, `victory-fork`, `klbf-lab`, `victory` (this checkout). |
+| `VICTORY_PROFILE` | highram | nvidia | The set of settings below. `highram` on an RTX 5060 Ti lost the device at once. |
+| `VKD3D_CONFIG=no_descriptor_heap` | set | not set | vkd3d-proton without `VK_EXT_descriptor_heap`. On RADV the heap gave faces two to three times too strong expressions, black clothes and flickering trees, and without it they are right. `VICTORY_DESCRIPTOR_HEAP=1` keeps the heap. On NVIDIA it makes every shader build again (not measured further). |
+| `VICTORY_DRIVER=amdvlk` | not set | | AMD's Vulkan driver instead of RADV, after `scripts/amdvlk.sh`. Slower here. |
+| `VICTORY_FRAME_RATE` | 60 | 60 | The rate the title's frames are paced at, instead of its own 30. `0` lifts the cap. Menus and videos run at 60. |
+| `VICTORY_NO_WATCHDOG` | 1 | 1 | Skips the title's watchdog, which otherwise ends long loading stalls. |
+| `VICTORY_LIVE_FILE` | set | set | The live settings menu, shown with F8 over the game. The render scale chosen there holds from the next start. Empty: off. |
+| `VICTORY_KEYBINDS` | | | Another keybinds file than `keybinds.conf`. |
+
+### Both profiles
+
+| Variable | Value | What it does, and what was measured |
+|---|---|---|
+| `VICTORY_TEXTURE_NO_WAIT` | 0 | Waits for the title's memory to hold still before refreshing a texture. With `1` the skin of every character looked oily and arms broke up on clothes (AMD), and `0` fixed both at no measured cost (22.3 fps against 21.4). On an RTX 5060 Ti the skin stays plastic either way. |
+| `VICTORY_WC_NO_BACK` | 1 | What shaders write into write-combined title memory stays on the card. AMD: copying back 10.7 to 5.8 ms a frame, 23.6 fps against 21.4. NVIDIA: not measured. |
+| `VICTORY_RELAY` | 2 | Results the card wrote are fetched back in two stages. `1` cost about 25 ms a frame elsewhere. |
+| `VICTORY_RELAY_COPY` | 1 | Those fetches run on the card's copy queue. |
+| `VICTORY_LAND_THREADS` | 4 | Threads that bring fetched results back to the title's memory. `8`: +0.4 fps on the previous base, within noise. |
+| `VICTORY_CARD_BUFFERS_MB` | 1536 | Most card memory, in MiB, for copies of the title's buffers. |
+| `VICTORY_CARD_BUFFERS_MIN_MB` | 1 | Least size of a buffer copied to the card. |
+| `VICTORY_CARD_STEPS` | 2 | Buffer fills and copies done on the card instead of waiting for fetches. |
+| `VICTORY_CARD_REHASH_RUNS` | 1 | One hash pass over the card's copies instead of one per range. |
+| `VICTORY_CARD_AWAKE` | 1 | Keeps the card's clocks up between submissions. |
+| `VICTORY_WIDE_BACK` | 1 | Copies back spread over several threads. |
+| `VICTORY_JOIN_COPIES` | 1 | A buffer copy that continues the previous one becomes one copy. |
+| `VICTORY_JOIN_PARTS` | 8 | Parts of the title's command lists sent to the card together. |
+| `VICTORY_INDIRECT_WINDOW` | 1 | Indirect draw records checked a window at a time. |
+| `VICTORY_INDIRECT_BATCH` | 2 | Indirect draw records checked in batches. |
+| `VICTORY_MAP_THREADS` | 1 | Threads that map the title's pages. |
+| `VICTORY_UPLOAD_AHEAD` | 1 | Textures uploaded by our threads as soon as the title makes them. |
+| `VICTORY_SHOW_AFTER` | 1 | A texture is shown once its upload has finished (avoids device losses). |
+| `VICTORY_TITLE_PRIORITIES` | 0 | The title's threads keep the priorities it sets. |
+| `VICTORY_PIPELINE_WAIT_MS` | 10000 | Longest wait for shaders being built, per frame. |
+| `VICTORY_SKIP_PIPELINES` | none | No pipeline is skipped. |
+| `VICTORY_DYNAMIC_SLOTS` | 524288 | Room for descriptor tables (fewer ran out in busy places). |
+| `VICTORY_AMBIENT` | 0.8 | Share of the ambient light estimate that stands in for the title's ray-traced light. |
+| `VICTORY_BVH_MISS` | 1 | Ray walks miss every node while the ray-tracing structures are not built. Suspected of the white grain seen indoors on an RTX 5060 Ti (not confirmed). |
+| `VICTORY_OWN_UPSCALER` | 1 | The title's own upscaler from the render scale to the window. |
+| `VICTORY_COMPOSE` | 1 | The Series S interface plane laid over the picture. |
+| `VICTORY_D3D12_DRED` | light | Device-removed data kept for crash reports. |
+
+### By profile
+
+| Variable | highram (AMD) | nvidia | What it does, and what was measured |
+|---|---|---|---|
+| `VICTORY_THIN` | 0 | 1 | List calls recorded on the title's threads and worked out by ours. `0` on an RTX 5060 Ti lost the device at once. |
+| `VICTORY_RENDER_SCALE` | 2/3 (title's) | 0.5 | Share of the window's size the title renders at. |
+| `VICTORY_CARD_ALL` | 1 | not set | Every title buffer copied to the card (more card memory). |
+| `VICTORY_FETCH_CHECK` | 1 | not set | Fetched pieces checked and fetched again when torn. Without it skin looked oily on another Linux port. On an RTX 5060 Ti adding it did not change the skin. |
+| `VICTORY_F16_NEAREST` | 1 | not set | Half floats rounded as the console rounds them. |
+| `VICTORY_PAIRED_ONLY` | two shaders | not set | Shaders kept in their wave-wide form. The water's volumetrics drew dark slabs in the paired form. |
+
+### For NVIDIA cards outside Steam
+
+`__GL_SHADER_DISK_CACHE_SIZE=12000000000 __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1`
+in front of the launcher keep the driver's shader cache from being trimmed:
+without them an RTX 5060 Ti built shaders again for minutes at every start
+(not yet confirmed).
+
 ## Keyboard fallback
 
 With no gamepad connected the keyboard stands in as one pad. The default
